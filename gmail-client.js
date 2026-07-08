@@ -10,12 +10,13 @@ function getGmailClient() {
   return google.gmail({ version: 'v1', auth: oauth2Client });
 }
 
-function buildRawMessage({ to, subject, body }) {
+function buildRawMessage({ to, subject, body, replyTo, fromDisplayName }) {
   const message = [
     'Content-Type: text/plain; charset="UTF-8"',
     'MIME-Version: 1.0',
     'To: ' + to,
-    'From: Jason Griffin <jason@therealhelp.com>',
+    'From: ' + (fromDisplayName || 'Jason Griffin') + ' <jason@therealhelp.com>',
+    'Reply-To: ' + (replyTo || 'jason@therealhelp.com'),
     'Subject: ' + subject,
     '',
     body
@@ -28,9 +29,9 @@ function buildRawMessage({ to, subject, body }) {
     .replace(/=+$/, '');
 }
 
-async function createDraft({ to, subject, body }) {
+async function createDraft({ to, subject, body, replyTo, fromDisplayName }) {
   const gmail = getGmailClient();
-  const raw = buildRawMessage({ to, subject, body });
+  const raw = buildRawMessage({ to, subject, body, replyTo, fromDisplayName });
   const result = await gmail.users.drafts.create({
     userId: 'me',
     requestBody: { message: { raw } }
@@ -38,9 +39,9 @@ async function createDraft({ to, subject, body }) {
   return { id: result.data.id, link: 'https://mail.google.com/mail/u/0/#drafts' };
 }
 
-async function sendEmail({ to, subject, body }) {
+async function sendEmail({ to, subject, body, replyTo, fromDisplayName }) {
   const gmail = getGmailClient();
-  const raw = buildRawMessage({ to, subject, body });
+  const raw = buildRawMessage({ to, subject, body, replyTo, fromDisplayName });
   const result = await gmail.users.messages.send({
     userId: 'me',
     requestBody: { raw }
@@ -50,7 +51,7 @@ async function sendEmail({ to, subject, body }) {
 
 async function ensureLabel_(gmail, name) {
   const list = await gmail.users.labels.list({ userId: 'me' });
-  const existing = (list.data.labels || []).find(l => l.name === name);
+  const existing = list.data.labels.find(l => l.name === name);
   if (existing) return existing.id;
   const created = await gmail.users.labels.create({
     userId: 'me',
@@ -119,6 +120,7 @@ async function listUnprocessedLeads() {
       threadId: m.threadId,
       fromName: fromRaw.replace(/<.+>/, '').replace(/"/g, '').trim() || fromRaw,
       fromEmail,
+      toHeader: getHeader('To'),
       subject: getHeader('Subject'),
       body: decodeBody_(full.data.payload).slice(0, 3000) // cap length sent to the model
     });
