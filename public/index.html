@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Lead Response Agent</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+  :root {
+    --bg: #0E1013; --panel: #15181D; --panel-2: #1B1F26; --border: #262B33;
+    --text: #E8E6E1; --dim: #868C99; --amber: #F2A93B; --amber-dim: rgba(242,169,59,0.12);
+    --green: #34D399; --green-dim: rgba(52,211,153,0.12);
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); margin: 0; }
+  .lab-root { font-family: var(--sans); color: var(--text); padding: 28px 20px 40px; max-width: 980px; margin: 0 auto; }
+  .lab-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--amber); margin: 0 0 8px; }
+  .lab-title { font-size: 24px; font-weight: 700; margin: 0 0 6px; }
+  .lab-sub { font-size: 14px; color: var(--dim); line-height: 1.5; max-width: 640px; margin: 0; }
+  .mode-toggle { display: inline-flex; gap: 0; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .mode-btn { font-family: var(--mono); font-size: 12px; padding: 6px 16px; cursor: pointer; background: var(--panel-2); color: var(--dim); border: none; border-right: 1px solid var(--border); transition: all 0.15s; }
+  .mode-btn:last-child { border-right: none; }
+  .mode-btn:hover { color: var(--text); background: #232832; }
+  .mode-btn.active-log { background: var(--panel-2); color: var(--dim); }
+  .mode-btn.active-draft { background: var(--amber-dim); color: var(--amber); font-weight: 600; }
+  .mode-btn.active-send { background: var(--green-dim); color: var(--green); font-weight: 600; }
+  .lab-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 24px; }
+  @media (min-width: 760px) { .lab-grid { grid-template-columns: 340px 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .panel-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin: 0 0 14px; }
+  label { display: block; font-size: 12.5px; color: var(--dim); margin: 14px 0 6px; }
+  label:first-of-type { margin-top: 0; }
+  select, textarea, input[type="text"] { width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: var(--sans); font-size: 13.5px; padding: 9px 10px; resize: vertical; }
+  select:focus, textarea:focus, input:focus { outline: none; border-color: var(--amber); }
+  textarea { min-height: 84px; line-height: 1.45; }
+  .run-btn { margin-top: 18px; width: 100%; background: var(--amber); color: #1A1400; border: none; border-radius: 6px; font-weight: 600; font-size: 14px; padding: 11px; cursor: pointer; }
+  .run-btn:disabled { opacity: .5; }
+  .trace { display: flex; flex-direction: column; }
+  .step { position: relative; padding: 0 0 20px 30px; border-left: 1.5px solid var(--border); margin-left: 8px; }
+  .step:last-child { border-left-color: transparent; padding-bottom: 0; }
+  .step-dot { position: absolute; left: -7.5px; top: 0; width: 13px; height: 13px; border-radius: 50%; background: var(--panel-2); border: 1.5px solid var(--border); }
+  .step.active .step-dot { background: var(--amber-dim); border-color: var(--amber); box-shadow: 0 0 0 3px var(--amber-dim); }
+  .step.done .step-dot { background: var(--green-dim); border-color: var(--green); }
+  .step-head { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
+  .step.active .step-head, .step.done .step-head { color: var(--text); }
+  .step-title { font-size: 14.5px; font-weight: 600; margin-bottom: 8px; }
+  .step-body { font-size: 13px; color: var(--dim); line-height: 1.55; }
+  .box { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-top: 6px; }
+  .email-subject { font-weight: 600; color: var(--text); font-size: 13.5px; margin-bottom: 6px; }
+  .email-body { color: var(--dim); font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+  .reasoning { font-style: italic; color: var(--amber); font-size: 12.5px; }
+  .error { color: #F87171; font-size: 13px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .badge { font-family: var(--mono); font-size: 11px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--dim); letter-spacing: .04em; }
+  .badge b { color: var(--text); font-weight: 600; }
+  .badge.mode-log b { color: var(--dim); }
+  .badge.mode-draft b { color: var(--amber); }
+  .badge.mode-send b { color: var(--green); }
+  .badge.poll-on b { color: var(--green); }
+  .badge.poll-off b { color: var(--dim); }
+  .poll-btn { margin-top: 4px; width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); font-size: 12.5px; padding: 10px; cursor: pointer; }
+  .poll-btn:hover { border-color: var(--amber); }
+  .poll-btn:disabled { opacity: .5; cursor: default; }
+  .log-entry { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-top: 8px; background: var(--panel-2); }
+  .log-meta { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-bottom: 6px; }
+  .log-from { color: var(--text); }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 4px; margin-left: 6px; }
+  .tag.yes { background: var(--green-dim); color: var(--green); }
+  .tag.no { background: var(--panel); color: var(--dim); border: 1px solid var(--border); }
+  .tag.err { background: rgba(248,113,113,0.12); color: #F87171; }
+  .empty { color: var(--dim); font-size: 12.5px; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="lab-root">
+  <p class="lab-eyebrow">Lead Response Agent</p>
+  <h1 class="lab-title">Live — watching a real inbox</h1>
+  <p class="lab-sub">The real trigger is the inbox poller (step 1): it reads unread mail in jason@therealhelp.com, triages each message, and — depending on SEND_MODE — logs, drafts, or sends a reply. Mode and polling are controlled in <b>.env</b> (restart to apply). The manual form below is for testing arbitrary text.</p>
+  <div class="badges" id="badges">
+    <span class="badge">SEND_MODE: <b id="badgeMode">…</b></span>
+    <span class="badge">POLLING: <b id="badgePoll">…</b></span>
+    <span class="badge">INTERVAL: <b id="badgeInterval">…</b></span>
+  </div>
+
+  <div class="lab-grid">
+    <div class="panel">
+      <p class="panel-label">Manual test (arbitrary text)</p>
+      <label>Lead name</label>
+      <input type="text" id="leadName" value="Marcus Webb" />
+      <label>Lead email (where a reply would go)</label>
+      <input type="text" id="leadEmail" value="jason@therealhelp.com" />
+      <label>Inbound message</label>
+      <textarea id="inquiry">Hey, I run a small home care agency and I keep hearing about MBE certification but I don't really understand what it does for me. Can you tell me more?</textarea>
+      <button class="run-btn" id="runBtn" onclick="runAgent()">Run the agent</button>
+
+      <p class="panel-label" style="margin-top:24px;">Inbox poller</p>
+      <button class="poll-btn" id="pollBtn" onclick="pollNow()">Poll inbox now</button>
+    </div>
+
+    <div class="panel">
+      <p class="panel-label">Trace</p>
+      <div class="trace" id="trace">
+        <div class="step" data-step="2"><div class="step-dot"></div><div class="step-head">Step 2</div><div class="step-title">Context</div><div class="step-body" id="s2">—</div></div>
+        <div class="step" data-step="4"><div class="step-dot"></div><div class="step-head">Step 4</div><div class="step-title">Decision</div><div class="step-body" id="s4">—</div></div>
+        <div class="step" data-step="5"><div class="step-dot"></div><div class="step-head">Step 5</div><div class="step-title">Action</div><div class="step-body" id="s5">—</div></div>
+      </div>
+
+      <p class="panel-label" style="margin-top:24px;">Poll log <span class="empty" id="logHint"></span></p>
+      <div id="pollLog"><div class="empty">No inbox runs yet. Click “Poll inbox now”.</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(str == null ? '' : String(str)));
+    return div.innerHTML;
+  }
+
+  async function loadConfig() {
+    try {
+      const res = await fetch('/api/config');
+      const cfg = await res.json();
+      const modeEl = document.getElementById('badgeMode');
+      modeEl.textContent = cfg.sendMode;
+      modeEl.parentElement.className = 'badge mode-' + cfg.sendMode;
+      const pollEl = document.getElementById('badgePoll');
+      pollEl.textContent = cfg.pollEnabled ? 'on' : 'off';
+      pollEl.parentElement.className = 'badge ' + (cfg.pollEnabled ? 'poll-on' : 'poll-off');
+      document.getElementById('badgeInterval').textContent = Math.round(cfg.pollIntervalMs / 1000) + 's';
+    } catch (err) {
+      document.getElementById('badgeMode').textContent = 'server offline';
+    }
+  }
+
+  function setStep(n, state) {
+    const el = document.querySelector('.step[data-step="' + n + '"]');
+    el.classList.remove('active', 'done');
+    if (state) el.classList.add(state);
+  }
+
+  async function runAgent() {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    ['2','4','5'].forEach(n => setStep(n, null));
+
+    const leadName = document.getElementById('leadName').value;
+    const leadEmail = document.getElementById('leadEmail').value;
+    const inquiry = document.getElementById('inquiry').value;
+
+    setStep(2, 'active');
+    document.getElementById('s2').innerHTML = '<div class="box">Sending to server for triage + model call...</div>';
+
+    try {
+      const res = await fetch('/api/run-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadName, leadEmail, inquiry })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById('s' + (data.step || 4)).innerHTML = '<div class="error">' + escapeHtml(data.error) + '</div>';
+        btn.disabled = false;
+        return;
+      }
+
+      setStep(2, 'done');
+      document.getElementById('s2').innerHTML = '<div class="box">Category: <strong>' + escapeHtml(data.decision.category) + '</strong><br>Angle: ' + escapeHtml(data.context.angle) + '<br>Tone: ' + escapeHtml(data.context.tone) + '</div>';
+
+      setStep(4, 'done');
+      document.getElementById('s4').innerHTML =
+        '<div class="box"><span class="reasoning">"' + escapeHtml(data.decision.reasoning) + '"</span><br><br>Should respond: <strong>' + (data.decision.should_respond ? 'Yes' : 'No') + '</strong></div>';
+
+      setStep(5, 'done');
+      let actionHtml = '';
+      if (data.decision.should_respond) {
+        actionHtml += '<div class="box"><div class="email-subject">' + escapeHtml(data.decision.subject || '') + '</div><div class="email-body">' + escapeHtml(data.decision.body || '') + '</div></div>';
+      }
+      actionHtml += '<div style="margin-top:8px;"><strong>' + escapeHtml(data.action.result) + '</strong>';
+      if (data.action.link) actionHtml += ' — <a href="' + escapeHtml(data.action.link) + '" target="_blank" style="color:var(--amber);">open Gmail drafts</a>';
+      actionHtml += '</div>';
+      document.getElementById('s5').innerHTML = actionHtml;
+    } catch (err) {
+      document.getElementById('s4').innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
+    }
+    btn.disabled = false;
+  }
+
+  function renderPollLog(entries) {
+    const container = document.getElementById('pollLog');
+    document.getElementById('logHint').textContent = entries.length ? '(' + entries.length + ' most recent)' : '';
+    if (!entries.length) {
+      container.innerHTML = '<div class="empty">No unread leads processed. Send a test email to the inbox, then poll again.</div>';
+      return;
+    }
+    container.innerHTML = entries.map(function (e) {
+      const time = new Date(e.time).toLocaleString();
+      let tag, detail;
+      if (e.error) {
+        tag = '<span class="tag err">error</span>';
+        detail = '<div class="error" style="margin-top:6px;">' + escapeHtml(e.error) + '</div>';
+      } else {
+        const d = e.result.decision;
+        tag = d.should_respond ? '<span class="tag yes">responded</span>' : '<span class="tag no">skipped</span>';
+        detail = '<div class="reasoning" style="margin-top:6px;">"' + escapeHtml(d.reasoning) + '"</div>';
+        if (d.should_respond) {
+          detail += '<div class="box" style="margin-top:6px;"><div class="email-subject">' + escapeHtml(d.subject || '') + '</div><div class="email-body">' + escapeHtml(d.body || '') + '</div></div>';
+          detail += '<div style="margin-top:6px;font-size:12px;"><strong>' + escapeHtml(e.result.action.result) + '</strong></div>';
+        }
+      }
+      return '<div class="log-entry"><div class="log-meta"><span class="log-from">' + escapeHtml(e.from) + '</span> — ' + escapeHtml(e.subject || '(no subject)') + tag + '<br>' + escapeHtml(time) + '</div>' + detail + '</div>';
+    }).join('');
+  }
+
+  async function loadPollLog() {
+    try {
+      const res = await fetch('/api/poll-log');
+      renderPollLog(await res.json());
+    } catch (err) { /* server offline */ }
+  }
+
+  async function pollNow() {
+    const btn = document.getElementById('pollBtn');
+    btn.disabled = true;
+    btn.textContent = 'Checking inbox…';
+    try {
+      const res = await fetch('/api/poll-now', { method: 'POST' });
+      renderPollLog(await res.json());
+    } catch (err) {
+      document.getElementById('pollLog').innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
+    }
+    btn.disabled = false;
+    btn.textContent = 'Poll inbox now';
+  }
+
+  loadConfig();
+  loadPollLog();
+</script>
+</body>
+</html>

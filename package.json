@@ -1,0 +1,14 @@
+{
+  "name": "lead-response-agent",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "auth": "node get-refresh-token.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "googleapis": "^140.0.1",
+    "dotenv": "^16.4.5"
+  }
+}
