@@ -10,6 +10,15 @@ function getGmailClient() {
   return google.gmail({ version: 'v1', auth: oauth2Client });
 }
 
+function encodeSubject_(subject) {
+  // Subject headers need RFC 2047 encoding for non-ASCII characters
+  // (em dashes, curly quotes, etc.) or Gmail mangles them into garbage bytes.
+  const hasNonAscii = /[^\x00-\x7F]/.test(subject);
+  if (!hasNonAscii) return subject;
+  const base64 = Buffer.from(subject, 'utf8').toString('base64');
+  return '=?UTF-8?B?' + base64 + '?=';
+}
+
 function buildRawMessage({ to, subject, body, replyTo, fromDisplayName }) {
   const message = [
     'Content-Type: text/plain; charset="UTF-8"',
@@ -17,7 +26,7 @@ function buildRawMessage({ to, subject, body, replyTo, fromDisplayName }) {
     'To: ' + to,
     'From: ' + (fromDisplayName || 'Jason Griffin') + ' <jason@therealhelp.com>',
     'Reply-To: ' + (replyTo || 'jason@therealhelp.com'),
-    'Subject: ' + subject,
+    'Subject: ' + encodeSubject_(subject),
     '',
     body
   ].join('\n');

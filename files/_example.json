@@ -1,0 +1,11 @@
+{
+  "id": "example",
+  "businessName": "Example Business LLC",
+  "replyToEmail": "owner@examplebusiness.com",
+  "fromDisplayName": "Example Business LLC",
+  "intakeAlias": "leads+example@therealhelp.com",
+  "sendMode": "log",
+  "servicesDescription": "Describe what this business actually does and what a typical inbound inquiry looks like -- this is the calibration work you're charging for.",
+  "voiceNotes": "e.g. warm and reassuring / direct and no-nonsense / plain-spoken, whatever fits this client",
+  "tagline": ""
+}
