@@ -11,11 +11,9 @@ function getGmailClient() {
 }
 
 function encodeSubject_(subject) {
-  // Subject headers need RFC 2047 encoding for non-ASCII characters
-  // (em dashes, curly quotes, etc.) or Gmail mangles them into garbage bytes.
-  const hasNonAscii = /[^\x00-\x7F]/.test(subject);
-  if (!hasNonAscii) return subject;
-  const base64 = Buffer.from(subject, 'utf8').toString('base64');
+  // Always RFC 2047-encode. Conditional encoding caused occasional corruption
+  // when Claude produced em dashes or curly quotes that slipped the ASCII check.
+  const base64 = Buffer.from(subject || '', 'utf8').toString('base64');
   return '=?UTF-8?B?' + base64 + '?=';
 }
 
