@@ -6,6 +6,21 @@ const { loadClients, matchClient } = require('./client-registry');
 
 const app = express();
 app.use(express.json());
+
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const [scheme, encoded] = header.split(' ');
+  const decoded = encoded ? Buffer.from(encoded, 'base64').toString('utf8') : '';
+  const [user, ...rest] = decoded.split(':');
+  const pass = rest.join(':'); // handle passwords that contain colons
+  if (scheme === 'Basic' && user === process.env.ADMIN_USER && pass === process.env.ADMIN_PASSWORD) {
+    return next();
+  }
+  res.set('WWW-Authenticate', 'Basic realm="Lead Response Agent"');
+  return res.status(401).send('Authentication required.');
+}
+
+app.use(requireAuth);
 app.use(express.static(path.join(__dirname, 'public')));
 
 function buildSystemPrompt(client) {
