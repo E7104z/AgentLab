@@ -103,7 +103,7 @@ async function listUnprocessedLeads() {
   const gmail = getGmailClient();
   const list = await gmail.users.messages.list({
     userId: 'me',
-    q: 'is:unread in:inbox -label:Agent-Processed'
+    q: 'is:unread in:inbox'
   });
   const messages = list.data.messages || [];
 
