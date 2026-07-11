@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const { createDraft, sendEmail, listUnprocessedLeads, markProcessed } = require('./gmail-client');
+const { createDraft, sendEmail, sendAlertEmail, listUnprocessedLeads, markProcessed } = require('./gmail-client');
 const { loadClients, matchClient } = require('./client-registry');
 
 const app = express();
@@ -119,6 +119,26 @@ app.post('/api/run-agent', async (req, res) => {
   }
 });
 
+// --- Alerting: throttled email notifications for poller failures ---
+const ALERT_THROTTLE_MS = 60 * 60 * 1000; // 1 hour per distinct error key
+const alertThrottle = new Map(); // key -> { lastSent: timestamp, suppressedCount: number }
+
+async function maybeAlert(key, subject, details) {
+  const now = Date.now();
+  const entry = alertThrottle.get(key);
+  if (entry && now - entry.lastSent < ALERT_THROTTLE_MS) {
+    entry.suppressedCount++;
+    console.error('[Alert suppressed] ' + key + ' -- suppressed ' + entry.suppressedCount + 'x this hour');
+    return;
+  }
+  alertThrottle.set(key, { lastSent: now, suppressedCount: 0 });
+  try {
+    await sendAlertEmail(subject, details);
+  } catch (alertErr) {
+    console.error('Alert send failed (Gmail may be down):', alertErr.message);
+  }
+}
+
 // --- Inbox poller: reads ONE mailbox, routes each message to the right client ---
 let pollLog = [];
 
@@ -154,11 +174,36 @@ async function pollInbox() {
       } catch (err) {
         await markProcessed(lead.id);
         pollLog.unshift({ time: new Date().toISOString(), from: lead.fromEmail, subject: lead.subject, error: err.message });
+        const alertKey = (client.id || 'unknown') + ':' + err.message;
+        const alertDetails = [
+          'Timestamp: ' + new Date().toISOString(),
+          'Type: Per-lead failure',
+          'Client: ' + (client.id || 'unknown'),
+          'Lead from: ' + lead.fromEmail,
+          'Lead subject: ' + lead.subject,
+          '',
+          'Error: ' + err.message,
+          '',
+          err.stack || '(no stack trace)'
+        ].join('\n');
+        await maybeAlert(alertKey, 'Lead processing failed (' + (client.id || 'unknown') + ')', alertDetails);
       }
     }
     pollLog = pollLog.slice(0, 100);
   } catch (err) {
     console.error('Poll error:', err.message);
+    await maybeAlert(
+      'poll:' + err.message,
+      'pollInbox() crashed',
+      [
+        'Timestamp: ' + new Date().toISOString(),
+        'Type: Top-level poll failure (entire poll cycle crashed)',
+        '',
+        'Error: ' + err.message,
+        '',
+        err.stack || '(no stack trace)'
+      ].join('\n')
+    );
   }
 }
 

@@ -56,6 +56,16 @@ async function sendEmail({ to, subject, body, replyTo, fromDisplayName }) {
   return { id: result.data.id };
 }
 
+/** Sends an operational alert (e.g. poller crash) to the admin, using the same Gmail account. */
+async function sendAlertEmail(subject, details) {
+  return sendEmail({
+    to: process.env.ALERT_EMAIL || 'jason@therealhelp.com',
+    subject: '[AgentLab Alert] ' + subject,
+    body: details,
+    fromDisplayName: 'AgentLab'
+  });
+}
+
 async function ensureLabel_(gmail, name) {
   const list = await gmail.users.labels.list({ userId: 'me' });
   const existing = list.data.labels.find(l => l.name === name);
@@ -146,4 +156,4 @@ async function markProcessed(messageId) {
   });
 }
 
-module.exports = { createDraft, sendEmail, listUnprocessedLeads, markProcessed };
+module.exports = { createDraft, sendEmail, sendAlertEmail, listUnprocessedLeads, markProcessed };
