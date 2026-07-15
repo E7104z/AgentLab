@@ -51,6 +51,14 @@
   .badge.mode-send b { color: var(--green); }
   .badge.poll-on b { color: var(--green); }
   .badge.poll-off b { color: var(--dim); }
+  .badge.agent-on b { color: var(--green); }
+  .badge.agent-off b { color: #F87171; }
+  .agent-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+  .agent-toggle { border: none; border-radius: 6px; font-family: var(--mono); font-size: 12.5px; font-weight: 600; letter-spacing: .04em; padding: 9px 18px; cursor: pointer; }
+  .agent-toggle.is-on { background: rgba(248,113,113,0.14); color: #F87171; border: 1px solid rgba(248,113,113,0.4); }
+  .agent-toggle.is-off { background: var(--green-dim); color: var(--green); border: 1px solid rgba(52,211,153,0.4); }
+  .agent-toggle:disabled { opacity: .5; cursor: default; }
+  .agent-status-text { font-family: var(--mono); font-size: 12px; color: var(--dim); }
   .poll-btn { margin-top: 4px; width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); font-size: 12.5px; padding: 10px; cursor: pointer; }
   .poll-btn:hover { border-color: var(--amber); }
   .poll-btn:disabled { opacity: .5; cursor: default; }
@@ -77,6 +85,12 @@
     <span class="badge">POLLING: <b id="badgePoll">…</b></span>
     <span class="badge">INTERVAL: <b id="badgeInterval">…</b></span>
     <span class="badge">MODEL: <b id="badgeModel">…</b></span>
+    <span class="badge" id="agentBadge">AGENT: <b id="badgeAgent">…</b></span>
+  </div>
+
+  <div class="agent-bar">
+    <button class="agent-toggle" id="agentToggleBtn" onclick="toggleAgent()" disabled>…</button>
+    <span class="agent-status-text" id="agentStatusText">Checking master switch…</span>
   </div>
 
   <div class="lab-grid">
@@ -112,6 +126,43 @@
 <script>
   let clientMap = {};
 
+  function renderAgent(enabled) {
+    const badge = document.getElementById('agentBadge');
+    const badgeVal = document.getElementById('badgeAgent');
+    const btn = document.getElementById('agentToggleBtn');
+    const statusText = document.getElementById('agentStatusText');
+    badgeVal.textContent = enabled ? 'on' : 'off';
+    badge.className = 'badge ' + (enabled ? 'agent-on' : 'agent-off');
+    btn.disabled = false;
+    if (enabled) {
+      btn.textContent = 'Turn agent OFF';
+      btn.className = 'agent-toggle is-on';
+      statusText.textContent = 'Agent is ON — it can poll and send automatically.';
+    } else {
+      btn.textContent = 'Turn agent ON';
+      btn.className = 'agent-toggle is-off';
+      statusText.textContent = 'Agent is OFF — no polling, no sending, no auto-replies.';
+    }
+  }
+
+  async function toggleAgent() {
+    const btn = document.getElementById('agentToggleBtn');
+    btn.disabled = true;
+    const currentlyOn = document.getElementById('badgeAgent').textContent === 'on';
+    try {
+      const res = await fetch('/api/agent-toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !currentlyOn })
+      });
+      const data = await res.json();
+      renderAgent(data.agentEnabled);
+    } catch (err) {
+      document.getElementById('agentStatusText').textContent = 'Toggle failed: ' + err.message;
+      btn.disabled = false;
+    }
+  }
+
   function escapeHtml(str) {
     const div = document.createElement('div');
     div.appendChild(document.createTextNode(str == null ? '' : String(str)));
@@ -132,6 +183,8 @@
       pollEl.textContent = cfg.pollEnabled ? 'on' : 'off';
       pollEl.parentElement.className = 'badge ' + (cfg.pollEnabled ? 'poll-on' : 'poll-off');
       document.getElementById('badgeInterval').textContent = Math.round(cfg.pollIntervalMs / 1000) + 's';
+
+      renderAgent(cfg.agentEnabled);
 
       // Model badge from config — we don't expose MODEL directly so just show a note
       document.getElementById('badgeModel').textContent = 'haiku (override via MODEL env)';

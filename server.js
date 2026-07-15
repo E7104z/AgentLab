@@ -9,13 +9,15 @@ const smsStore = require('./sms-store');
 const app = express();
 app.use(express.json({ limit: '8mb' })); // large enough for pasted/uploaded lead CSVs
 
-// --- MASTER KILL SWITCH (fail-safe) ---------------------------------------
+// --- MASTER KILL SWITCH (fail-safe, runtime-toggleable) -------------------
 // The agent performs NO automatic outbound action (no email send/draft, no
-// inbox polling, no automatic SMS reply) unless AGENT_ENABLED is explicitly
-// set to "true". This defaults OFF so a fresh/redeployed instance is inert
-// until a human opts in -- it cannot silently resume answering leads.
-const AGENT_ENABLED = (process.env.AGENT_ENABLED || 'false').toLowerCase() === 'true';
-console.log('AGENT_ENABLED = ' + AGENT_ENABLED + (AGENT_ENABLED ? '' : ' -- all automatic responses are DISABLED'));
+// inbox polling, no automatic SMS reply) unless the switch is ON. It defaults
+// to the AGENT_ENABLED env var (default "false"), so a fresh/redeployed
+// instance is always inert until a human turns it on -- it cannot silently
+// resume answering leads. The dashboard on/off button flips it at runtime;
+// a restart/redeploy resets it back to the safe env default.
+let agentEnabled = (process.env.AGENT_ENABLED || 'false').toLowerCase() === 'true';
+console.log('AGENT_ENABLED = ' + agentEnabled + (agentEnabled ? '' : ' -- all automatic responses are DISABLED'));
 
 // --- Twilio inbound SMS webhook -------------------------------------------
 // Registered BEFORE requireAuth: Twilio cannot send Basic-auth credentials, so
@@ -25,7 +27,7 @@ app.post('/sms/webhook', express.urlencoded({ extended: false }), async (req, re
   const cfg = sms.config();
   const signature = req.headers['x-twilio-signature'];
   const fullUrl = cfg.webhookUrl || (req.protocol + '://' + req.get('host') + req.originalUrl);
-  const autoResponsesEnabled = AGENT_ENABLED && (process.env.SMS_AUTO_RESPONSES_ENABLED || 'false').toLowerCase() === 'true';
+  const autoResponsesEnabled = agentEnabled && (process.env.SMS_AUTO_RESPONSES_ENABLED || 'false').toLowerCase() === 'true';
 
   // In dry-run with no auth token configured we skip verification for local testing.
   const mustVerify = Boolean(cfg.authToken) && !cfg.dryRun;
@@ -113,8 +115,8 @@ async function decideAndAct(client, { leadName, leadEmail, subject, inquiry }) {
 
   // Master kill switch forces log-only: never draft or send while disabled,
   // regardless of the client's configured sendMode.
-  const sendMode = AGENT_ENABLED ? (client.sendMode || 'log').toLowerCase() : 'log';
-  let action = { mode: sendMode, result: AGENT_ENABLED ? 'No action taken (log mode).' : 'No action taken (AGENT_ENABLED is false -- automatic responses disabled).' };
+  const sendMode = agentEnabled ? (client.sendMode || 'log').toLowerCase() : 'log';
+  let action = { mode: sendMode, result: agentEnabled ? 'No action taken (log mode).' : 'No action taken (agent is OFF -- master kill switch).' };
 
   if (!decision.should_respond) {
     action = { mode: sendMode, result: 'Agent decided not to respond -- no Gmail action taken.' };
@@ -149,10 +151,20 @@ app.get('/api/clients', (req, res) => {
 
 app.get('/api/config', (req, res) => {
   res.json({
+    agentEnabled,
     pollEnabled: (process.env.POLL_ENABLED || 'false').toLowerCase() === 'true',
     pollIntervalMs: Number(process.env.POLL_INTERVAL_MS || 120000),
     clientCount: loadClients().length
   });
+});
+
+// Master on/off switch state + toggle (dashboard button). Protected by requireAuth.
+app.get('/api/agent-status', (req, res) => res.json({ agentEnabled }));
+app.post('/api/agent-toggle', (req, res) => {
+  const desired = req.body && typeof req.body.enabled === 'boolean' ? req.body.enabled : !agentEnabled;
+  agentEnabled = desired;
+  console.log('AGENT switched ' + (agentEnabled ? 'ON' : 'OFF') + ' via dashboard at ' + new Date().toISOString());
+  res.json({ agentEnabled });
 });
 
 app.post('/api/run-agent', async (req, res) => {
@@ -260,6 +272,7 @@ async function maybeAlert(key, subject, details) {
 let pollLog = [];
 
 async function pollInbox() {
+  if (!agentEnabled) return; // master kill switch: no polling while the agent is OFF
   try {
     const clients = loadClients();
     const { leads, skipped } = await listUnprocessedLeads();
@@ -330,14 +343,12 @@ app.post('/api/poll-now', async (req, res) => {
   res.json(pollLog);
 });
 
-if (AGENT_ENABLED && (process.env.POLL_ENABLED || 'false').toLowerCase() === 'true') {
+if ((process.env.POLL_ENABLED || 'false').toLowerCase() === 'true') {
   const interval = Number(process.env.POLL_INTERVAL_MS || 120000);
   setInterval(pollInbox, interval);
-  console.log('Inbox polling ON -- checking every ' + (interval / 1000) + 's across ' + loadClients().length + ' client(s)');
-} else if (!AGENT_ENABLED) {
-  console.log('Inbox polling OFF -- AGENT_ENABLED is false (master kill switch)');
+  console.log('Inbox poll loop armed every ' + (interval / 1000) + 's -- each cycle runs ONLY while the agent is ON (currently ' + (agentEnabled ? 'ON' : 'OFF') + ')');
 } else {
-  console.log('Inbox polling OFF -- set POLL_ENABLED=true in .env to turn it on');
+  console.log('Inbox polling OFF -- set POLL_ENABLED=true to arm the poll loop');
 }
 
 app.get('/favicon.ico', (req, res) => res.status(204).end());
