@@ -152,7 +152,7 @@ app.get('/api/clients', (req, res) => {
 app.get('/api/config', (req, res) => {
   res.json({
     agentEnabled,
-    pollEnabled: (process.env.POLL_ENABLED || 'false').toLowerCase() === 'true',
+    pollEnabled: agentEnabled && (process.env.POLL_ENABLED || 'false').toLowerCase() === 'true',
     pollIntervalMs: Number(process.env.POLL_INTERVAL_MS || 120000),
     clientCount: loadClients().length
   });
