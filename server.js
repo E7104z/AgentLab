@@ -3,9 +3,55 @@ const express = require('express');
 const path = require('path');
 const { createDraft, sendEmail, sendAlertEmail, listUnprocessedLeads, markProcessed } = require('./gmail-client');
 const { loadClients, matchClient } = require('./client-registry');
+const sms = require('./sms-outreach');
+const smsStore = require('./sms-store');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '8mb' })); // large enough for pasted/uploaded lead CSVs
+
+// --- MASTER KILL SWITCH (fail-safe) ---------------------------------------
+// The agent performs NO automatic outbound action (no email send/draft, no
+// inbox polling, no automatic SMS reply) unless AGENT_ENABLED is explicitly
+// set to "true". This defaults OFF so a fresh/redeployed instance is inert
+// until a human opts in -- it cannot silently resume answering leads.
+const AGENT_ENABLED = (process.env.AGENT_ENABLED || 'false').toLowerCase() === 'true';
+console.log('AGENT_ENABLED = ' + AGENT_ENABLED + (AGENT_ENABLED ? '' : ' -- all automatic responses are DISABLED'));
+
+// --- Twilio inbound SMS webhook -------------------------------------------
+// Registered BEFORE requireAuth: Twilio cannot send Basic-auth credentials, so
+// this endpoint is instead secured by verifying Twilio's X-Twilio-Signature.
+// It handles STOP/HELP/YES/NO replies and advances the consent state machine.
+app.post('/sms/webhook', express.urlencoded({ extended: false }), async (req, res) => {
+  const cfg = sms.config();
+  const signature = req.headers['x-twilio-signature'];
+  const fullUrl = cfg.webhookUrl || (req.protocol + '://' + req.get('host') + req.originalUrl);
+  const autoResponsesEnabled = AGENT_ENABLED && (process.env.SMS_AUTO_RESPONSES_ENABLED || 'false').toLowerCase() === 'true';
+
+  // In dry-run with no auth token configured we skip verification for local testing.
+  const mustVerify = Boolean(cfg.authToken) && !cfg.dryRun;
+  if (mustVerify && !sms.validateTwilioSignature(fullUrl, req.body, signature)) {
+    return res.status(403).send('Invalid Twilio signature.');
+  }
+
+  try {
+    const reply = await sms.handleInbound({
+      from: req.body.From,
+      to: req.body.To,
+      body: req.body.Body || ''
+    });
+    res.set('Content-Type', 'text/xml');
+    const twiml = autoResponsesEnabled && reply
+      ? '<?xml version="1.0" encoding="UTF-8"?><Response><Message>' +
+        String(reply).replace(/[<>&]/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch])) +
+        '</Message></Response>'
+      : '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
+    res.send(twiml);
+  } catch (err) {
+    console.error('SMS webhook error:', err.message);
+    res.set('Content-Type', 'text/xml');
+    res.send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+  }
+});
 
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -65,8 +111,10 @@ async function decideAndAct(client, { leadName, leadEmail, subject, inquiry }) {
   const clean = (textBlock ? textBlock.text : '{}').replace(/```json|```/g, '').trim();
   const decision = JSON.parse(clean);
 
-  const sendMode = (client.sendMode || 'log').toLowerCase();
-  let action = { mode: sendMode, result: 'No action taken (log mode).' };
+  // Master kill switch forces log-only: never draft or send while disabled,
+  // regardless of the client's configured sendMode.
+  const sendMode = AGENT_ENABLED ? (client.sendMode || 'log').toLowerCase() : 'log';
+  let action = { mode: sendMode, result: AGENT_ENABLED ? 'No action taken (log mode).' : 'No action taken (AGENT_ENABLED is false -- automatic responses disabled).' };
 
   if (!decision.should_respond) {
     action = { mode: sendMode, result: 'Agent decided not to respond -- no Gmail action taken.' };
@@ -116,6 +164,75 @@ app.post('/api/run-agent', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(err.step === 5 ? 500 : 502).json({ step: err.step || 4, error: err.message });
+  }
+});
+
+// ============================================================================
+// SMS Outreach API (separate subsystem — see sms-outreach.js / public/outreach.html)
+// ============================================================================
+
+app.get('/api/sms/status', (req, res) => res.json(sms.status()));
+
+app.get('/api/sms/events', (req, res) => res.json(smsStore.recentEvents(120)));
+
+app.get('/api/sms/contacts', (req, res) => {
+  const filter = (req.query.status || '').toLowerCase();
+  let list = smsStore.allContacts();
+  if (filter) list = list.filter(c => c.status === filter);
+  // Trim payload; the dashboard doesn't need the full reply history in the list.
+  res.json(list.slice(0, 500).map(c => ({
+    phone: c.phone, firstName: c.firstName, businessName: c.businessName,
+    city: c.city, status: c.status, numberUsed: c.numberUsed,
+    invitedAt: c.invitedAt, lastError: c.lastError,
+    replies: (c.replies || []).length
+  })));
+});
+
+app.post('/api/sms/import', (req, res) => {
+  const csv = req.body && req.body.csv;
+  if (!csv || typeof csv !== 'string') return res.status(400).json({ error: 'Provide { csv: "..." } text.' });
+  try {
+    res.json(sms.importCsv(csv));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/sms/start', (req, res) => {
+  try {
+    res.json(sms.start());
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/sms/pause', (req, res) => res.json(sms.pause()));
+
+// Preview a single AI-personalized opener without sending anything.
+app.post('/api/sms/preview', async (req, res) => {
+  const { firstName, businessName, city, customNote, phone } = req.body || {};
+  try {
+    const message = await sms.personalizeOptIn({ firstName, businessName, city, customNote, phone });
+    res.json({ message, length: message.length, timezone: sms.timezoneForContact({ phone: phone || '' }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Send one real test message to a number you control (respects dry-run mode).
+app.post('/api/sms/test-send', async (req, res) => {
+  const { to } = req.body || {};
+  const cfg = sms.config();
+  const phone = sms.normalizePhone(to);
+  if (!phone) return res.status(400).json({ error: 'Invalid phone number.' });
+  if (!cfg.numbers.length) return res.status(400).json({ error: 'No TWILIO_NUMBERS configured.' });
+  try {
+    const message = await sms.personalizeOptIn({ firstName: 'there', phone });
+    const result = await sms.twilioSend({ to: phone, from: cfg.numbers[0], body: message });
+    smsStore.logEvent({ type: 'outbound', phone, number: cfg.numbers[0], body: message, sid: result.sid, status: result.status, dryRun: !!result.dryRun, test: true });
+    res.json({ ok: true, message, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -213,10 +330,12 @@ app.post('/api/poll-now', async (req, res) => {
   res.json(pollLog);
 });
 
-if ((process.env.POLL_ENABLED || 'false').toLowerCase() === 'true') {
+if (AGENT_ENABLED && (process.env.POLL_ENABLED || 'false').toLowerCase() === 'true') {
   const interval = Number(process.env.POLL_INTERVAL_MS || 120000);
   setInterval(pollInbox, interval);
   console.log('Inbox polling ON -- checking every ' + (interval / 1000) + 's across ' + loadClients().length + ' client(s)');
+} else if (!AGENT_ENABLED) {
+  console.log('Inbox polling OFF -- AGENT_ENABLED is false (master kill switch)');
 } else {
   console.log('Inbox polling OFF -- set POLL_ENABLED=true in .env to turn it on');
 }
@@ -227,4 +346,5 @@ const port = process.env.PORT || 3456;
 app.listen(port, () => {
   console.log('Multi-client lead response agent running: http://localhost:' + port);
   console.log('Clients loaded: ' + loadClients().map(c => c.id).join(', '));
+  console.log('SMS outreach dashboard: http://localhost:' + port + '/outreach.html (Twilio configured: ' + sms.isConfigured() + ', dryRun: ' + sms.config().dryRun + ')');
 });
