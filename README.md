@@ -1,75 +1,56 @@
-# Lead Response Agent
+# AgentLab
 
-A multi-client AI agent that reads a real inbox, decides which messages are genuine business inquiries, and drafts (or sends) a response in the right voice for the right client — running independently in the cloud, no laptop required.
+The automation engine behind therealhelp.com, and the product The Real Help sells: an AI assistant that answers every lead in minutes, books the call, follows up, drafts the proposal, takes payment, onboards the client, asks for the review and reports on all of it. Multi-client: The Real Help is client #1.
 
-## The 5-step loop
+## What it does
 
-| Step | What it does | Where |
+| Step | What happens | Where |
 |---|---|---|
-| **Trigger** | Inbox poller checks for unread mail every `POLL_INTERVAL_MS` | `server.js` → `pollInbox()` |
-| **Context** | Routes mail to the right client by plus-alias, pulls their voice/services | `client-registry.js` |
-| **Model call** | Sends the message to Claude with an injection-resistant system prompt | `server.js` → `decideAndAct()` |
-| **Decision** | Claude returns structured JSON: respond or not, subject, body, reasoning | Claude Haiku via Anthropic API |
-| **Action** | Creates a Gmail draft (or sends) with correct reply-to and sender name | `gmail-client.js` |
+| Website lead | Signed webhook → contact saved → AI reply in the same minute (template fallback if the model is down) → follow-ups enrolled → owner alerted. Phone-only leads become a "call within 1 hour" task. No texting. | `src/flows/leads.js` |
+| Email | Gmail history API (never `is:unread`, never marks mail read) → route by alias → opt-outs and bounces handled → Claude decides with a forced tool call → validated → policy → threaded reply | `src/flows/inbound.js`, `src/agent/*` |
+| Booking | Cal.com webhook: booked stops follow-ups, opens a deal and sends prep questions in the lead's thread; cancelled sends a reschedule link; ended creates a "call notes" task. Reminders are Cal.com workflows. | `src/flows/booking.js` |
+| Follow-up | Per-client sequences (day 2/5/12 after a lead, day 3/10 after a proposal, day 7/30/45 after delivery). Business hours only. Stop on reply, booking, payment, opt-out or bounce. | `src/flows/sequences.js` |
+| Proposal | Call notes → Claude drafts sections (numbers checked against notes) → Google Doc with bold filled values → Stripe Checkout link → email waits in Review for approval | `src/flows/deals.js` |
+| Payment | Stripe webhook (signature verified, idempotent): won → follow-ups stop → welcome email → client portal invite → build task | `src/flows/deals.js` |
+| After delivery | Review request (only if marked happy), check-in, referral link with the client's own `?ref=` code | sequences |
+| Reports | 7 a.m. daily digest, Monday scorecard (leads by source, median first reply, booked and won rates, MRR), optional Sheet row, per-client weekly report | `src/reports/reports.js` |
+| Dashboard | Kill switch, review queue, tasks, pipeline with deal actions, contacts and conversations, test runner, activity | `public/` |
 
-## Stack
+## Safety model
 
-- **Claude (Anthropic API)** — decision-making, model set via `MODEL` env var (defaults to Haiku for cost)
-- **Gmail API (OAuth2 via `googleapis`)** — reads inbox, creates drafts, sends mail, labels for dedup
-- **Node.js + Express** — server
-- **Google Cloud Console** — OAuth client lives in a dedicated `real-help-internal-agents` project, Internal consent screen (Workspace-only, no Google verification needed)
-- **Railway** — hosting, auto-deploys from GitHub on push
+- **Master kill switch.** `AGENT_ENABLED` defaults to `false`, and a redeploy resets it. While off, nothing touches Gmail and nothing is invited or sent; leads and bookings are still recorded and items are held. Turning it on sends fresh held items and routes anything older than 12 hours to Review. A test proves zero outbound actions while off.
+- **Staged rollout per client.** `sendMode`: `log` (decide only) → `draft` (Gmail draft + Review) → `send`.
+- **One outbox.** Every email is a row in `outbox` and passes one processor: kill switch, suppression list, demo limits, sendMode, then Gmail. Dedupe keys make every flow safe to retry.
+- **No invented facts.** The model answers only from `clients/<id>/knowledge.md`. A reply that states a price or percentage not in the knowledge, or contains a placeholder, goes to a human. Proposals reject numbers not in the call notes. Prices come from config or from what Jason typed.
+- **Always a human for** billing, client support, refunds, discounts, legal threats, complaints, low confidence, and every proposal email.
+- **Prompt-injection resistance.** Inbound text is framed as untrusted data, and the model can only fill a fixed tool schema.
+- **Webhooks** are HMAC-verified (lead: timestamped, 5-minute window; Cal.com: `X-Cal-Signature-256`; Stripe: official verification). The dashboard uses Basic auth and refuses to open without credentials. Helmet security headers, rate limits.
+- **Client isolation.** Every row carries `client_id`, and every dashboard query is scoped to it.
 
 ## Setup
 
 1. `npm install`
-2. Copy `.env.example` → `.env`, fill in `ANTHROPIC_API_KEY`
-3. Google Cloud Console: enable Gmail API on your project, create an OAuth Desktop client, add `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` to `.env`
-4. `npm run auth` — opens a consent URL, log in as the mailbox owner, approve. Paste the printed `GOOGLE_REFRESH_TOKEN` into `.env`
-5. `npm start`
+2. Copy `env.example` to `.env` (or set Railway Variables). `DATABASE_URL` is required; migrations run on start.
+3. Google Cloud Console: enable the Gmail, Docs, Drive and Sheets APIs; create an OAuth Desktop client; set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+4. `npm run auth`, sign in as **info@thecdscloud.com**, and set the printed `GMAIL_REFRESH_TOKEN_MAIN`.
+5. `npm start`, open the dashboard, test with **Test agent**, then turn the agent on.
+
+The full go-live checklist is in `docs/GO-LIVE.md`. The website change is in `docs/WEBSITE_HOOK.md`.
 
 ## Adding a client
 
-1. Copy `clients/_example.json` → `clients/<id>.json`
-2. Fill in `businessName`, `replyToEmail`, `intakeAlias` (e.g. `leads+acme@yourdomain.com`), `servicesDescription`, `voiceNotes`
-3. Have the client forward their contact form (or inbox) to their `intakeAlias`
-4. Restart the server — it auto-loads every `.json` in `clients/`
-5. New clients start at `"sendMode": "log"` — graduate to `"draft"` then `"send"` only after reviewing real output
-
-`clients/_default.json` is the first-party config (mail with no plus-alias, i.e. straight to the base inbox).
-
-## Per-client fields
-
-| Field | Purpose |
-|---|---|
-| `sendMode` | `"log"` (decide only) → `"draft"` (creates real Gmail draft) → `"send"` (actually sends) |
-| `replyTo` | Leads reply straight to the client's own inbox, not yours |
-| `fromDisplayName` | From name on outbound mail |
-| `intakeAlias` | The plus-address substring used to route mail to this client |
-| `servicesDescription` / `voiceNotes` / `tagline` | Feeds directly into the system prompt — this is the actual calibration work |
-
-## Safety features
-
-- **Prompt injection resistance** — inbound message text is explicitly framed as untrusted content to evaluate, never as instructions to follow. Tested against buried instructions, fake system messages, and prompts trying to extract the system prompt itself.
-- **Noise pre-filter** (`NOISE_SENDER_PATTERNS` in `gmail-client.js`) — no-reply, mailer-daemon, DMARC reports, security alerts, etc. get skipped before any Claude call. Zero API cost on junk.
-- **Unrouted safety net** — mail to an unrecognized `+alias` is flagged in the poll log, not guessed at. Silent misrouting between clients is the one failure mode that actually damages trust.
-- **Dedup labeling** — `Agent-Processed` Gmail label prevents reprocessing the same message twice.
-- **Staged rollout per client** — nothing reaches a real inbox unreviewed until `sendMode` is manually graduated.
+`npm run client:new -- acme "Acme Plumbing"` creates `clients/acme/client.json` (log mode, sequences off) and `knowledge.md`, and prints the onboarding checklist. The knowledge file is the calibration work you're charging for.
 
 ## Endpoints
 
-- `GET /api/clients` — list configured clients
-- `GET /api/config` — poll status, interval, client count
-- `POST /api/run-agent` — manual single-message test (used by `public/index.html`)
-- `GET /api/poll-log` — last 100 poll cycle results (decisions, actions, filtered/unrouted flags)
-- `POST /api/poll-now` — trigger an immediate poll cycle
+Public: `GET /healthz`, `POST /webhooks/lead?client=<id>`, `POST /webhooks/cal?client=<id>`, `POST /webhooks/stripe`.
 
-## Known gaps / next steps
+Dashboard API (Basic auth): `/api/config`, `/api/clients`, `/api/agent-status`, `/api/agent-toggle`, `/api/run-agent` (decide only), `/api/poll-log`, `/api/poll-now`, `/api/review` (+ `approve`, `discard`, `retry`), `/api/tasks`, `/api/pipeline`, `/api/contacts`, `/api/deals/:id/{notes,proposal,no-show,delivered,lost}`, `/api/scorecard`, `/api/digest-preview`, `/api/outbox`.
 
-- **No crash/failure alerting yet** — if polling errors out repeatedly, nothing currently notifies anyone. Needed before this handles a paying client's leads unsupervised.
-- Currently one client configured (`default`). Multi-client capacity is built, just not populated yet.
-- `sendMode` for `default` is `"draft"` — has not been graduated to `"send"`.
+## Tests
+
+`npm test` runs 51 tests against a real Postgres (`TEST_DATABASE_URL`, default `postgres://agentlab:agentlab@localhost:5432/agentlab_test`) with fake Gmail, Claude, Docs and portal, plus Stripe's own signature code. They cover routing, threading, the history cursor and fallback, idempotency, retries, opt-outs, bounces, the send policy, invented-price blocking, demo limits, every webhook signature, the booking lifecycle, sequences, the kill switch, and a full lead → paid → delivered → review run.
 
 ## History
 
-Originally a single-client Apps Script system, scrapped and rebuilt as a Node/Express app to support real infrastructure ownership (Railway hosting, multi-client routing) instead of per-client Apps Script duplication.
+v1 (July 2026): one inbox, one client, JSON scraped from free text, an unused SMS subsystem. v2 (Nov 2026): Postgres, the outbox, threading, the full lifecycle, the dashboard and tests. SMS was removed.

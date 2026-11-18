@@ -1,0 +1,114 @@
+{
+  "id": "default",
+  "businessName": "The Real Help",
+  "mailbox": "main",
+  "fromEmail": "info@thecdscloud.com",
+  "fromDisplayName": "Jason Griffin, The Real Help",
+  "replyTo": "info@thecdscloud.com",
+  "intakeAlias": "",
+  "sendMode": "log",
+  "timezone": "America/Chicago",
+  "businessHours": { "start": 8, "end": 18, "days": [1, 2, 3, 4, 5] },
+  "ownerName": "Jason",
+  "website": "https://therealhelp.com",
+  "phone": "314-660-2890",
+  "bookingUrl": "https://cal.com/jason-griffin-0covhm",
+  "kickoffBookingUrl": "https://cal.com/jason-griffin-0covhm",
+  "reviewUrl": "",
+  "referralBaseUrl": "https://therealhelp.com/",
+  "reportEmail": "",
+  "signature": "Jason Griffin\nThe Real Help | therealhelp.com | 314-660-2890",
+  "voiceNotes": "direct, warm, plain language, no corporate jargon, no hashtags, first person as Jason, short sentences",
+  "aiDisclosure": false,
+  "autoSendMinConfidence": 0.8,
+  "offers": {
+    "quick_fix": { "label": "The Quick Fix", "setupCents": 50000, "monthlyCents": 3000 }
+  },
+  "sequences": {
+    "no_booking": {
+      "active": true,
+      "steps": [
+        {
+          "day": 2,
+          "subject": "Re: {{lastSubject}}",
+          "body": "Hi {{firstName}},\n\nJust making sure my last note reached you. If {{chore}} is still eating your week, a free 15-minute call is the fastest way to see if a Quick Fix can handle it.\n\nGrab any open time here: {{bookingUrl}}\n\n{{signature}}\n\n{{optOut}}"
+        },
+        {
+          "day": 5,
+          "subject": "Re: {{lastSubject}}",
+          "body": "Hi {{firstName}},\n\nMost owners I talk to have one chore they'd hand off tomorrow if they could. If yours is {{chore}}, I can usually tell you on one short call whether it's a $500 Quick Fix or something bigger.\n\n{{bookingUrl}}\n\n{{signature}}\n\n{{optOut}}"
+        },
+        {
+          "day": 12,
+          "subject": "Re: {{lastSubject}}",
+          "body": "Hi {{firstName}},\n\nI'll stop following up after this one. If the timing is better later, just reply to this email and I'll pick it back up.\n\n{{signature}}\n\n{{optOut}}"
+        }
+      ]
+    },
+    "post_call": {
+      "active": true,
+      "steps": [
+        {
+          "day": 3,
+          "subject": "Re: {{lastSubject}}",
+          "body": "Hi {{firstName}},\n\nChecking in on the proposal I sent. Happy to answer any questions or adjust the scope.\n\nProposal: {{proposalUrl}}\nTo get started: {{payUrl}}\n\n{{signature}}\n\n{{optOut}}"
+        },
+        {
+          "day": 10,
+          "subject": "Re: {{lastSubject}}",
+          "body": "Hi {{firstName}},\n\nOne last check on the proposal. If now isn't the right time, no problem. Just reply and let me know, and I'll close it out for now.\n\nProposal: {{proposalUrl}}\n\n{{signature}}\n\n{{optOut}}"
+        }
+      ]
+    },
+    "post_delivery": {
+      "active": true,
+      "steps": [
+        {
+          "day": 7,
+          "kind": "review_request",
+          "subject": "Quick favor?",
+          "body": "Hi {{firstName}},\n\nGlad your new tool is up and running. If it's been helpful, a short Google review would mean a lot to a small business like mine:\n\n{{reviewUrl}}\n\nThank you,\n{{signature}}"
+        },
+        {
+          "day": 30,
+          "kind": "check_in",
+          "subject": "How's it working?",
+          "body": "Hi {{firstName}},\n\nIt's been about a month since we launched. How is it working for you? If anything needs a tweak, just reply. Small fixes are covered.\n\n{{signature}}"
+        },
+        {
+          "day": 45,
+          "kind": "referral_ask",
+          "subject": "Know another owner who's buried in busywork?",
+          "body": "Hi {{firstName}},\n\nIf you know another business owner stuck doing something by hand, I'd be grateful for an introduction. You can share this link and I'll know it came from you:\n\n{{referralUrl}}\n\n{{signature}}"
+        }
+      ]
+    }
+  },
+  "templates": {
+    "lead_reply_fallback": {
+      "subject": "Thanks for reaching out, {{firstName}}",
+      "body": "Hi {{firstName}},\n\nThanks for reaching out to The Real Help. {{choreLine}}\n\nWhat's the one part of it that takes the most time each week?\n\nIf it's easier to talk it through, grab a free 15-minute intro call here: {{bookingUrl}}\n\n{{signature}}"
+    },
+    "booking_prep": {
+      "subject": "Re: {{lastSubject}}",
+      "body": "Hi {{firstName}},\n\nYou're booked for {{callTime}}. Looking forward to it.\n\nTo make the call useful, reply with two quick things if you can:\n1. What's the chore you'd most like to hand off?\n2. What do you use for it today (paper, spreadsheet, an app)?\n\n{{signature}}"
+    },
+    "booking_cancelled": {
+      "subject": "Re: {{lastSubject}}",
+      "body": "Hi {{firstName}},\n\nNo problem on the cancellation. If you'd like to pick a new time, here's the link: {{bookingUrl}}\n\n{{signature}}"
+    },
+    "no_show": {
+      "subject": "Re: {{lastSubject}}",
+      "body": "Hi {{firstName}},\n\nSorry we missed each other today. Want to grab another time? {{bookingUrl}}\n\n{{signature}}"
+    },
+    "proposal": {
+      "subject": "Your proposal from The Real Help",
+      "body": "Hi {{firstName}},\n\nThanks for the call. Here's the proposal we talked about:\n{{proposalUrl}}\n\n{{priceLine}}\n\nWhen you're ready to start, you can pay securely here:\n{{payUrl}}\n\nAny questions, just reply.\n\n{{signature}}"
+    },
+    "welcome": {
+      "subject": "Welcome to The Real Help",
+      "body": "Hi {{firstName}},\n\nPayment received, thank you. We're officially started.\n\nNext step: book a kickoff call so I can see exactly how you work today: {{kickoffBookingUrl}}\n\nYou'll also get a separate email to set up your client portal login.\n\n{{signature}}"
+    }
+  },
+  "optOutLine": "Reply \"stop\" and I won't follow up again."
+}

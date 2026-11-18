@@ -1,42 +1,40 @@
 /**
- * Run once: node get-refresh-token.js
- * Opens a URL you paste into your browser, log in AS jason@therealhelp.com,
- * approve access, and it'll print the refresh token to save in .env.
+ * Authorize a mailbox once:   npm run auth            (mailbox "main")
+ *                             npm run auth -- sales   (mailbox "sales")
+ * Opens a consent URL. Sign in AS the mailbox you want AgentLab to read and send from
+ * (for The Real Help: info@thecdscloud.com), approve, and copy the printed line into your env.
  */
 require('dotenv').config();
 const { google } = require('googleapis');
 const express = require('express');
 
-const REQUIRED = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'];
-for (const key of REQUIRED) {
+const mailbox = (process.argv[2] || 'main').toLowerCase();
+const envName = 'GMAIL_REFRESH_TOKEN_' + mailbox.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+
+for (const key of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI']) {
   if (!process.env[key]) {
-    console.error('Missing ' + key + ' in .env — fill in the OAuth client fields first.');
+    console.error('Missing ' + key + ' in .env. Fill in the OAuth client fields first.');
     process.exit(1);
   }
 }
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
+const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, process.env.GOOGLE_REDIRECT_URI);
 
-// gmail.compose = create drafts / send
-// gmail.modify  = read inbox + apply labels (needed for the inbox poller)
 const SCOPES = [
-  'https://www.googleapis.com/auth/gmail.compose',
-  'https://www.googleapis.com/auth/gmail.modify'
+  'https://www.googleapis.com/auth/gmail.modify', // read inbox, apply labels, send
+  'https://www.googleapis.com/auth/gmail.compose', // drafts
+  'https://www.googleapis.com/auth/documents', // proposals
+  'https://www.googleapis.com/auth/drive', // copy the proposal template, share the link
+  'https://www.googleapis.com/auth/spreadsheets', // weekly scorecard sheet
 ];
 
 const app = express();
-
 app.get('/oauth2callback', async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(req.query.code);
-    res.send('Done — check your terminal, then close this tab.');
-    console.log('\nAdd this line to your .env file:\n');
-    console.log('GOOGLE_REFRESH_TOKEN=' + tokens.refresh_token);
-    console.log('\n');
+    res.send('Done. Check your terminal, then close this tab.');
+    console.log('\nAdd this line to your env (Railway Variables or .env):\n');
+    console.log(envName + '=' + tokens.refresh_token + '\n');
     process.exit(0);
   } catch (err) {
     res.status(500).send('Something went wrong: ' + err.message);
@@ -45,13 +43,10 @@ app.get('/oauth2callback', async (req, res) => {
   }
 });
 
-app.listen(process.env.PORT || 3456, () => {
-  const url = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    prompt: 'consent',
-    scope: SCOPES
-  });
-  console.log('\nOpen this URL in your browser and log in as jason@therealhelp.com:\n');
+const port = Number(new URL(process.env.GOOGLE_REDIRECT_URI).port || 3456);
+app.listen(port, () => {
+  const url = oauth2Client.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: SCOPES });
+  console.log(`\nAuthorizing mailbox "${mailbox}". Open this URL and sign in as that mailbox:\n`);
   console.log(url);
-  console.log('\nWaiting for you to approve access...\n');
+  console.log('\nWaiting for approval...\n');
 });

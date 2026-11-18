@@ -4,11 +4,28 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "auth": "node get-refresh-token.js"
+    "auth": "node get-refresh-token.js",
+    "test": "vitest run",
+    "client:new": "node scripts/client-new.js",
+    "migrate": "node -e \"require('dotenv').config();const{createDb}=require('./src/db');const db=createDb(process.env.DATABASE_URL);db.migrate().then(a=>{console.log('applied',a);return db.close()})\""
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.10.0",
+    "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.7.5",
+    "firebase-admin": "^14.5.1",
     "googleapis": "^140.0.1",
-    "dotenv": "^16.4.5"
+    "helmet": "^8.3.0",
+    "pg": "^8.23.1",
+    "stripe": "^23.1.0",
+    "zod": "^4.6.7"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "vitest": "^5.1.1"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
