@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
+    "demo": "node scripts/demo.js",
     "auth": "node get-refresh-token.js",
     "test": "vitest run",
     "client:new": "node scripts/client-new.js",
