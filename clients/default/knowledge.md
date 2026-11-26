@@ -56,6 +56,6 @@ Source: therealhelp.com site content (src/pages/home/content.ts). Only facts in 
 - Book a free intro call: https://cal.com/jason-griffin-0covhm
 
 ## Never say / out of scope
-- We do not offer certification, MBE/WBE/DBE, government contracting, Medicaid/CDS consulting, branding, social media or marketing strategy services. If asked, say The Real Help focuses on software and automation, and flag for Jason.
+- We do not offer branding, social media or marketing strategy services. If asked, say The Real Help focuses on software and automation, and flag for Jason.
 - Never promise a specific delivery date, discount, refund, guarantee or result.
 - Never name or describe clients beyond what is in "Work we've shipped".
