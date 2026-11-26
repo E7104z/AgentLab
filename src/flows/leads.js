@@ -25,6 +25,36 @@ const LeadSchema = z.object({
   source: z.string().max(60).optional().default('website'),
 });
 
+/**
+ * Maps the outbox row's final status to what actually happened to the lead's
+ * reply, so the owner alert states the real outcome (never a false "queued").
+ */
+function describeResult(row) {
+  switch (row && row.status) {
+    case 'held':
+      return 'skipped (agent OFF)';
+    case 'logged':
+      return 'logged only (client in log mode)';
+    case 'pending_review':
+      return 'draft created';
+    case 'sent':
+      return 'sent';
+    case 'failed':
+      return 'failed: ' + (row.error || row.reason || 'unknown error');
+    case 'suppressed':
+      return 'skipped (suppressed: ' + (row.reason || 'suppressed') + ')';
+    case 'queued':
+      return row.error ? 'queued (will retry): ' + row.error : 'queued (pending)';
+    default:
+      return row ? String(row.status) : 'not enqueued';
+  }
+}
+
+/** One line per website lead. Identifiers and outcome only — never names, emails or phone numbers. */
+function logLead(clientId, leadId, sendMode, result) {
+  console.log(`[lead] id=${leadId} client=${clientId} sendMode=${sendMode} result=${result}`);
+}
+
 function createLeads({ db, store, outbox, sequences, getClient, llm, config }) {
   async function handleLead(clientId, payload) {
     const client = getClient(clientId);
@@ -38,7 +68,11 @@ function createLeads({ db, store, outbox, sequences, getClient, llm, config }) {
     const phone = digits.length >= 10 ? digits : '';
     if (!email && !phone) throw Object.assign(new Error('lead has no email or phone'), { status: 400 });
 
-    const chore = lead.chore || lead.message.slice(0, 200);
+    // What the lead wants automated: the website sends a dedicated `chore` field
+    // (and after the site fix also mirrors it into `message`). Prefer `chore`, fall
+    // back to `message`. Store a bounded copy so follow-up templates stay short.
+    const chore = lead.chore || lead.message;
+    const storedChore = chore.slice(0, 300);
     // Phone-only leads have no email, so they can't be matched; dedupe on the event id instead.
     const contact = email
       ? await store.upsertContact(client.id, {
@@ -50,7 +84,7 @@ function createLeads({ db, store, outbox, sequences, getClient, llm, config }) {
           ref: lead.ref,
           utm: lead.utm,
           landing_page: lead.landingPage,
-          chore,
+          chore: storedChore,
         })
       : null;
 
@@ -60,7 +94,10 @@ function createLeads({ db, store, outbox, sequences, getClient, llm, config }) {
       externalId: lead.leadId,
       payload: { ...lead, email, phone },
     });
-    if (!event) return { duplicate: true };
+    if (!event) {
+      logLead(client.id, lead.leadId, client.sendMode, 'duplicate');
+      return { duplicate: true };
+    }
 
     if (!email) {
       const phoneContact = await store.upsertContact(client.id, {
@@ -71,22 +108,23 @@ function createLeads({ db, store, outbox, sequences, getClient, llm, config }) {
         ref: lead.ref,
         utm: lead.utm,
         landing_page: lead.landingPage,
-        chore,
+        chore: storedChore,
       });
       await store.addTask(client.id, {
         contactId: phoneContact.id,
         kind: 'call_lead',
         title: `Call ${lead.name || 'new lead'} at ${phone} within 1 business hour`,
-        details: `Business: ${lead.business}\nWants automated: ${lead.message}`,
+        details: `Business: ${lead.business}\nWants automated: ${chore}`,
         dueAt: new Date(Date.now() + 3600000),
         dedupeKey: `call_lead:${lead.leadId}`,
       });
       await outbox.notifyOwner(client.id, {
         subject: `Call this lead: ${lead.name || phone}`,
-        body: `New phone-only lead from the website.\n\nName: ${lead.name}\nPhone: ${phone}\nBusiness: ${lead.business}\nWants automated: ${lead.message}\n\nCall within 1 business hour.`,
+        body: `New phone-only lead from the website.\n\nName: ${lead.name}\nPhone: ${phone}\nBusiness: ${lead.business}\nWants automated: ${chore}\n\nCall within 1 business hour.`,
         dedupeKey: `alert:call_lead:${lead.leadId}`,
       });
       await outbox.processQueue();
+      logLead(client.id, lead.leadId, client.sendMode, 'call_task');
       return { contactId: phoneContact.id, action: 'call_task' };
     }
 
@@ -126,8 +164,11 @@ function createLeads({ db, store, outbox, sequences, getClient, llm, config }) {
       }
     }
 
+    // Enqueue the reply, run the outbox so its row reaches a real end state
+    // (logged / draft / sent / held / failed), then report what actually happened.
+    let result;
     if (body) {
-      await outbox.enqueue(client.id, {
+      const row = await outbox.enqueue(client.id, {
         kind: 'lead_reply',
         contactId: contact.id,
         to: email,
@@ -137,6 +178,9 @@ function createLeads({ db, store, outbox, sequences, getClient, llm, config }) {
         reason,
         dedupeKey: `lead_reply:${lead.leadId}`,
       });
+      await outbox.processQueue();
+      const final = row ? await db.one('SELECT * FROM outbox WHERE id = $1', [row.id]) : null;
+      result = describeResult(final);
     } else {
       await store.addTask(client.id, {
         contactId: contact.id,
@@ -145,14 +189,16 @@ function createLeads({ db, store, outbox, sequences, getClient, llm, config }) {
         details: reason,
         dedupeKey: `lead_task:${lead.leadId}`,
       });
+      result = 'no reply drafted (task created for review)';
     }
     await sequences.enroll(client.id, contact.id, 'no_booking');
     await outbox.notifyOwner(client.id, {
       subject: `New lead: ${lead.name || email}${lead.business ? ' (' + lead.business + ')' : ''}`,
-      body: `Name: ${lead.name}\nEmail: ${email}\nPhone: ${phone || '-'}\nBusiness: ${lead.business}\nWants automated: ${lead.message}\nRef: ${lead.ref || '-'}\n\nReply: ${policy === 'auto' ? 'queued to send' : 'waiting for your review'} (${reason}).`,
+      body: `Name: ${lead.name}\nEmail: ${email}\nPhone: ${phone || '-'}\nBusiness: ${lead.business}\nWants automated: ${chore}\nRef: ${lead.ref || '-'}\n\nResult: ${result}.`,
       dedupeKey: `alert:lead:${lead.leadId}`,
     });
     await outbox.processQueue();
+    logLead(client.id, lead.leadId, client.sendMode, result);
     return { contactId: contact.id, policy, reason };
   }
 

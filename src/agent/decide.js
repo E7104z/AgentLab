@@ -149,8 +149,7 @@ async function composeLeadReply({ llm, model, client, lead }) {
     '"""',
     `Name: ${lead.name || ''}`,
     `Business: ${lead.business || ''}`,
-    `What they want automated: ${lead.message || ''}`,
-    `Chore: ${lead.chore || ''}`,
+    `What they want automated: ${lead.chore || lead.message || ''}`,
     '"""',
   ].join('\n');
   const { input } = await llm.callTool({
