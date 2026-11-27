@@ -6,6 +6,7 @@ const { rateLimit } = require('express-rate-limit');
 const { safeEqual, verifyTimestampedSignature, hmacHex } = require('../lib/util');
 const { decideInbound } = require('../agent/decide');
 const { decideRoute } = require('../agent/policy');
+const mountDialer = require('../../dialer/routes');
 
 function createServer(agent) {
   const { config, db, store } = agent;
@@ -210,6 +211,9 @@ function createServer(agent) {
   // Reports
   api.get('/scorecard', wrap(async (req) => agent.reports.scorecard(client(req).id, Number(req.query.days || 7))));
   api.get('/digest-preview', wrap(async (req) => agent.reports.dailyDigest(client(req).id)));
+
+  // Cold Call Dialer (dialer/*, public/dialer.html): same login and rate limit as the dashboard.
+  mountDialer(app, apiLimiter, requireAuth);
 
   app.use('/api', api);
   app.use('/', apiLimiter, requireAuth, express.static(path.join(__dirname, '..', '..', 'public')));
