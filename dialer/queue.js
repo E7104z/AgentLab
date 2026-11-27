@@ -2,7 +2,7 @@
 // imports with de-duplication, and the daily scoreboard.
 
 const store = require('./store');
-const { normalizeRecord, firstNameOf } = require('./parse');
+const { normalizeRecord, firstNameOf, looksGarbled } = require('./parse');
 
 // ---- Outcomes ----------------------------------------------------------------
 // kind: retry  -> comes back after retryDays until maxAttempts, then 'exhausted'
@@ -109,7 +109,9 @@ function nextLead(filters = {}, excludeIds = []) {
   if (retries.length) return pack(retries[0], 'retry', counts(leads, s));
 
   // 3. A random fresh lead.
-  const fresh = leads.filter(l => l.status === 'new' && callable(l));
+  const freshAll = leads.filter(l => l.status === 'new' && callable(l));
+  const clean = freshAll.filter(l => !looksGarbled(l));
+  const fresh = clean.length ? clean : freshAll;   // garbled names only when nothing clean is left
   if (fresh.length) return pack(fresh[Math.floor(Math.random() * fresh.length)], 'new', counts(leads, s));
 
   return { lead: null, reason: emptyReason(leads, s), queue: counts(leads, s) };
@@ -323,6 +325,17 @@ function leadView(id) {
   return l ? view(l) : null;
 }
 
+// Counts of leads with garbled names, by source list, so bad imports can be found.
+function dataQuality() {
+  const bySource = {};
+  let garbled = 0, noName = 0;
+  for (const l of store.allLeads()) {
+    if (!l.businessName) noName++;
+    if (looksGarbled(l)) { garbled++; for (const s of (l.sources || ['(none)'])) bySource[s] = (bySource[s] || 0) + 1; }
+  }
+  return { total: store.allLeads().length, garbled, noName, garbledBySource: bySource };
+}
+
 function filterOptions() {
   const leads = store.allLeads();
   const tally = key => {
@@ -338,5 +351,5 @@ function filterOptions() {
 
 module.exports = {
   OUTCOMES, nextLead, logOutcome, addNote, skip, updateLead, importRecords,
-  stats, pipeline, search, leadView, filterOptions, leadTimezone
+  stats, pipeline, search, leadView, filterOptions, leadTimezone, dataQuality
 };

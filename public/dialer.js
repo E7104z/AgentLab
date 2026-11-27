@@ -178,6 +178,7 @@
       if (seq !== aiSeq || !lead || lead.id !== id) return;
       if (r.ai) renderAi(r.ai);
       else if (r.reason === 'no_key') box.innerHTML = '<span class="dim" style="font-size:12.5px">AI scripts are off: no Anthropic key is set on the server. Using the standard script.</span>';
+      else if (r.reason === 'bad_name') box.innerHTML = '<span class="dim" style="font-size:12.5px">This lead\'s business name came in garbled from the import, so no personalized script. Edit the name or skip it.</span>';
       else if (r.reason === 'cap') box.innerHTML = '<span class="dim" style="font-size:12.5px">Daily AI script limit reached. Using the standard script.</span>';
       else box.classList.add('hidden');
     } catch (e) { if (seq === aiSeq) box.classList.add('hidden'); }

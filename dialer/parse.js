@@ -386,4 +386,12 @@ function normalizeRecord(rec, mapping, opts = {}) {
   return lead;
 }
 
-module.exports = { fillFromExtra, FIELDS, autoMap, parseFile, normalizeRecord, phoneDigits, formatPhone, parseCsvText, firstNameOf };
+// A lead whose name/city came out as work-code text or a fused CSV row (seen in
+// some state vendor-directory files). Not worth a call until the import is fixed.
+function looksGarbled(l) {
+  const n = String(l.businessName || '');
+  const c = String(l.city || '');
+  return /^\d{3,}\s*-\s/.test(n) || /","|,"|",|,''/.test(n) || (n.match(/,/g) || []).length > 2 || n.length > 110 || c.length > 40 || c.includes(',');
+}
+
+module.exports = { looksGarbled, fillFromExtra, FIELDS, autoMap, parseFile, normalizeRecord, phoneDigits, formatPhone, parseCsvText, firstNameOf };

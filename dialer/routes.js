@@ -136,6 +136,7 @@ module.exports = function mountDialer(app, guards = [], deps = {}) {
 
   r.get('/search', send(req => ({ results: queue.search(req.query.q) })));
   r.get('/pipeline', send(() => ({ leads: queue.pipeline() })));
+  r.get('/quality', send(() => queue.dataQuality()));
   r.get('/stats', send(() => queue.stats()));
   r.get('/filters', send(() => queue.filterOptions()));
   r.get('/imports', send(() => ({ imports: store.load().imports.slice().reverse() })));
