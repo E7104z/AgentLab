@@ -150,6 +150,7 @@
 
   // ---------- Personalized AI script ----------
   const AI_MODE = { website: 'from their website', search: 'from a web search', list: 'from the list info only' };
+  const OFFER_NAME = { 1: 'Website That Gets Calls', 2: 'AI Lead Responder', 3: 'Paperwork Autopilot' };
   let aiSeq = 0;
   function renderAi(ai) {
     const box = $('aiBox');
@@ -160,6 +161,7 @@
     const objs = (ai.objections || []).map(o => '<div class="obj"><b>' + esc(o.they_say) + '</b> &rarr; ' + esc(o.you_say) + '</div>').join('');
     box.innerHTML =
       '<div class="bar"><span class="dim" style="font-size:11.5px">Personalized ' + esc(AI_MODE[ai.mode] || '') + '</span><button class="qbtn" id="aiRegen">Rewrite</button></div>' +
+      (ai.offer ? '<div class="hook"><b>Lead with: ' + esc(OFFER_NAME[ai.offer]) + '</b>' + (ai.offerReason ? ' <span class="src">(' + esc(ai.offerReason) + ')</span>' : '') + '</div>' : '') +
       hook + row('OPENER', ai.opener) + row('ASK', ai.q1) + row('THEN', ai.q2) + row('BRIDGE', ai.bridge) +
       (objs ? '<span class="lbl">IF THEY SAY</span>' + objs : '') +
       (ai.voicemail ? '<details><summary>VOICEMAIL</summary><div class="say">' + esc(ai.voicemail) + '</div></details>' : '') +

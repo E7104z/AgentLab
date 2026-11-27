@@ -37,33 +37,47 @@ const DEFAULT_SETTINGS = {
   emailSubject: 'Following up from my call - {{businessName}}',
   emailTemplate:
     'Hi {{firstName}},\n\n' +
-    'Thanks for taking a minute on the phone today. As promised, here is the short version:\n\n' +
-    'I build simple custom software for small businesses - booking, intake, scheduling, follow-up and the busywork in between - ' +
-    'for $500 up front plus $30 a month.\n\n' +
+    'Thanks for taking a minute on the phone today. Here is the short version:\n\n' +
+    'I build three things for small businesses. Each is $500 to build and $30 a month to host, run and support (up to 2 small changes a month included):\n\n' +
+    '1. Website That Gets Calls - a mobile site with click-to-call and a contact form that emails you.\n' +
+    '2. AI Lead Responder - every web form or email gets a reply in under 2 minutes, in your voice.\n' +
+    '3. Paperwork Autopilot - one form that fills your estimate, intake or job sheet and sends the PDF.\n\n' +
+    'Each one goes live within 5 business days of me receiving your materials. Anything bigger is a custom build with a fixed quote first.\n\n' +
     'You can see examples at {{website}}.{{bookingLine}}\n\n' +
     'Jason Griffin\n{{senderCompany}}',
+  scriptVersion: 2,
   script: [
     'OPENER',
-    'Hi, is this {{firstName}}? This is Jason Griffin with The Real Help. I know I\'m catching you in the middle of your day - can I have 30 seconds to tell you why I called, and you can tell me if it\'s worth talking more?',
+    'Hi, is this {{firstName}}? This is Jason Griffin with The Real Help. I know I\'m catching you in the middle of your day - can I have 30 seconds to tell you why I called, and you can tell me if it\'s worth another minute?',
     '',
-    'REASON FOR THE CALL',
-    'I came across {{businessName}} on a list of certified businesses in the area. I build simple custom apps for small businesses - things like online booking, client intake, scheduling, invoices and follow-up texts and emails - so owners stop doing that work by hand.',
+    'REASON FOR THE CALL - give three choices, not a yes/no',
+    'I build three things for small businesses, $500 each, done in under a week: a website that makes your phone ring, an assistant that answers every lead in two minutes, and paperwork that fills itself out. Which of those would help {{businessName}} most right now?',
     '',
-    'QUESTION (then listen)',
-    'What\'s the one task in your week that eats the most time - the thing you wish just ran itself?',
+    'IF THEY HESITATE - ask, then offer the match',
+    'Do you have a website? (No / embarrassing -> offer 1)',
+    'When someone fills out your form or emails at 9 p.m., what happens? ("I get to it tomorrow" -> offer 2)',
+    'How do you send estimates or intake forms now? ("Word doc and email" -> offer 3)',
     '',
-    'PITCH',
-    'That\'s exactly what I build. It\'s $500 to build it and $30 a month to keep it running and supported.',
+    'PITCH - say only the one that fits',
+    '1) WEBSITE THAT GETS CALLS: A mobile site, up to five sections - services, about, photos and reviews, a contact form that emails you and logs to a sheet, click-to-call, basic local search setup, on your own domain.',
+    '2) AI LEAD RESPONDER: Every web form or email gets a reply in under two minutes, in your voice, using your services, prices and hours. It pushes them to book or call, alerts you, and flags anything it is unsure of instead of guessing. First week is draft mode so you approve each reply.',
+    '3) PAPERWORK AUTOPILOT: One form - quote request, intake, job sheet or application - fills your document template. The PDF goes to your customer and you, gets filed in Drive and tracked in a sheet.',
+    'PRICE: $500 to build, $30 a month to host, run and support it, including up to two small changes a month. Live within five business days of getting your materials.',
     '',
     'CLOSE - pick one',
-    'A) Book: Let\'s do a 15-minute screen-share so I can show you what that would look like for {{businessName}}. Does tomorrow or Thursday work better?',
-    'B) Close now: If you want, I can lock in your build today - I\'ll email you the details and a payment link, and we get started.',
+    'A) Book: Let\'s do 15 minutes on a screen-share so I can show you what that looks like for {{businessName}}. Does tomorrow or Thursday work better?',
+    'B) Close now: I\'ll email you a one-page scope of exactly what is included and a payment link, and we start as soon as I have your logo, photos and services.',
+    'DEMO CLOSE (offer 2): Email my demo address right now while we are on the phone and watch the reply land. Use the separate demo inbox, never your main one.',
+    '',
+    'NOTHING FITS?',
+    'Tell me the biggest headache in your week and I\'ll tell you honestly if I can fix it for $500. Bigger jobs - customer portals, logins, several systems talking to each other - are a custom build with a fixed quote after a 20-minute scoping call.',
     '',
     'OBJECTIONS',
-    'Send me something -> Happy to. What\'s the best email? And so I send the right thing - what would you want it to do first?',
-    'Not interested -> Understood. Is that because you have something in place already, or the timing isn\'t right?',
-    'No budget -> That\'s why it\'s $500, not $5,000. If it saves you two hours a week, it pays for itself in the first month.',
-    'Already use software -> Good. Is there anything it doesn\'t do that you still handle by hand? That\'s usually where I come in.'
+    'Send me something -> Happy to. What\'s the best email? And which of the three should I lead with?',
+    'Not interested -> Understood. Is that because you have this covered already, or the timing isn\'t right?',
+    'No budget -> That\'s why it\'s $500, not $5,000. If it saves you two hours a week or lands one extra job, it pays for itself fast.',
+    'Already have a website / software -> Good. What does it still not do - the part you handle by hand or miss when you\'re out on a job? That\'s usually where I come in.',
+    'Can you also do ___ (bigger) -> Possibly. That would be a custom build - a fixed quote after a short call, so there are no surprises.'
   ].join('\n')
 };
 
@@ -88,7 +102,15 @@ function load() {
   cache.leads = cache.leads || {};
   cache.calls = cache.calls || [];
   cache.imports = cache.imports || [];
+  const savedScriptVersion = (cache.settings && cache.settings.scriptVersion) || 1;
   cache.settings = { ...DEFAULT_SETTINGS, ...(cache.settings || {}) };
+  // One-time swap of the old single-offer defaults for the three-offer script/email,
+  // only if the saved text is still the old default (never overwrites Jason's edits).
+  if (savedScriptVersion < DEFAULT_SETTINGS.scriptVersion) {
+    if (/on a list of certified businesses/.test(cache.settings.script || '')) cache.settings.script = DEFAULT_SETTINGS.script;
+    if (/I build simple custom software for small businesses/.test(cache.settings.emailTemplate || '')) cache.settings.emailTemplate = DEFAULT_SETTINGS.emailTemplate;
+    cache.settings.scriptVersion = DEFAULT_SETTINGS.scriptVersion;
+  }
   cache.meta = cache.meta || { createdAt: new Date().toISOString() };
   rebuildIndex();
   return cache;
