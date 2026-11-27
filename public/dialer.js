@@ -132,6 +132,7 @@
     if (queue) $('queueLine').textContent = queue.matching + ' leads match · ' + queue.fresh + ' never called · ' + queue.retryLater + ' waiting on retry · ' + queue.callbacks + ' with a callback set';
     loadScript();
     remember(l.id);
+    setTimeout(prefetchNext, 300);
   }
 
   function remember(id) {
@@ -144,6 +145,57 @@
       $('script').innerHTML = esc(r.script).split('\n').map(line =>
         /^[A-Z]{3,}\b/.test(line.trim()) && !/[.?]/.test(line) ? '<span class="h">' + line + '</span>' : line).join('\n');
     } catch (e) { $('script').textContent = ''; }
+    loadAiScript(false);
+  }
+
+  // ---------- Personalized AI script ----------
+  const AI_MODE = { website: 'from their website', search: 'from a web search', list: 'from the list info only' };
+  let aiSeq = 0;
+  function renderAi(ai) {
+    const box = $('aiBox');
+    const row = (label, text) => text ? '<span class="lbl">' + label + '</span><div class="say">' + esc(text) + '</div>' : '';
+    const hook = ai.hook
+      ? '<div class="hook">Hook: ' + esc(ai.hook) + (ai.hookEvidence ? ' <span class="src">(' + esc(ai.hookEvidence) + ')</span>' : '') + '</div>'
+      : '<div class="hook"><span class="src">No specific finding on this one, so it is written from the business type.</span></div>';
+    const objs = (ai.objections || []).map(o => '<div class="obj"><b>' + esc(o.they_say) + '</b> &rarr; ' + esc(o.you_say) + '</div>').join('');
+    box.innerHTML =
+      '<div class="bar"><span class="dim" style="font-size:11.5px">Personalized ' + esc(AI_MODE[ai.mode] || '') + '</span><button class="qbtn" id="aiRegen">Rewrite</button></div>' +
+      hook + row('OPENER', ai.opener) + row('ASK', ai.q1) + row('THEN', ai.q2) + row('BRIDGE', ai.bridge) +
+      (objs ? '<span class="lbl">IF THEY SAY</span>' + objs : '') +
+      (ai.voicemail ? '<details><summary>VOICEMAIL</summary><div class="say">' + esc(ai.voicemail) + '</div></details>' : '') +
+      (ai.sourceUrl ? '<div class="dim" style="font-size:11.5px;margin-top:8px">Source: <a href="' + esc(ai.sourceUrl) + '" target="_blank" rel="noopener">' + esc(ai.sourceUrl) + '</a></div>' : '');
+    box.classList.remove('hidden');
+    $('aiRegen').addEventListener('click', () => loadAiScript(true));
+  }
+  async function loadAiScript(force) {
+    const box = $('aiBox');
+    if (!lead || !settings.aiScripts) { box.classList.add('hidden'); return; }
+    const id = lead.id, seq = ++aiSeq;
+    box.classList.remove('hidden');
+    box.innerHTML = '<span class="dim" style="font-size:12.5px">Writing a personalized script&hellip;</span>';
+    try {
+      const r = await api('/lead/' + id + '/ai-script', { method: 'POST', body: JSON.stringify({ force: !!force }) });
+      if (seq !== aiSeq || !lead || lead.id !== id) return;
+      if (r.ai) renderAi(r.ai);
+      else if (r.reason === 'no_key') box.innerHTML = '<span class="dim" style="font-size:12.5px">AI scripts are off: no Anthropic key is set on the server. Using the standard script.</span>';
+      else if (r.reason === 'cap') box.innerHTML = '<span class="dim" style="font-size:12.5px">Daily AI script limit reached. Using the standard script.</span>';
+      else box.classList.add('hidden');
+    } catch (e) { if (seq === aiSeq) box.classList.add('hidden'); }
+  }
+
+  // Write the next lead's script while you are on the current call.
+  let queued = null;
+  function filterSig() { const p = new URLSearchParams(filterQuery()); p.delete('exclude'); return p.toString(); }
+  async function prefetchNext() {
+    queued = null;
+    if (!lead || !settings.aiScripts) return;
+    const sig = filterSig(), from = lead.id;
+    try {
+      const r = await api('/next?' + filterQuery());
+      if (!r.lead || !lead || lead.id !== from) return;
+      queued = { r, sig };
+      api('/lead/' + r.lead.id + '/ai-script', { method: 'POST', body: '{}' }).catch(() => {});
+    } catch (e) {}
   }
 
   function showEmpty(msg, queue) {
@@ -158,7 +210,10 @@
   async function next(resetRecent) {
     if (resetRecent) recentIds = lead ? [lead.id] : [];
     try {
-      const r = await api('/next?' + filterQuery());
+      let r;
+      if (!resetRecent && queued && queued.sig === filterSig() && queued.r.lead && !recentIds.includes(queued.r.lead.id)) r = queued.r;
+      else r = await api('/next?' + filterQuery());
+      queued = null;
       if (r.lead) renderLead(r.lead, r.reason, r.queue);
       else showEmpty(r.reason, r.queue);
     } catch (e) { toast(e.message, true); }
@@ -506,7 +561,7 @@
   }
 
   // ---------- Settings ----------
-  const SETTING_IDS = ['dailyGoal', 'maxAttempts', 'retryDays', 'gatekeeperRetryDays', 'enforceCallWindow', 'callWindowStart', 'callWindowEnd', 'callMethod', 'textnowUrl', 'bookingLink', 'gmailAccount', 'senderName', 'senderCompany', 'website', 'emailSubject', 'emailTemplate', 'script'];
+  const SETTING_IDS = ['dailyGoal', 'maxAttempts', 'retryDays', 'gatekeeperRetryDays', 'enforceCallWindow', 'aiScripts', 'aiSearchFallback', 'callWindowStart', 'callWindowEnd', 'callMethod', 'textnowUrl', 'bookingLink', 'gmailAccount', 'senderName', 'senderCompany', 'website', 'emailSubject', 'emailTemplate', 'script'];
   const sid = k => 'set' + k[0].toUpperCase() + k.slice(1);
   let dataFileInfo = '';
   function fillSettings() {
