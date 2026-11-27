@@ -351,8 +351,11 @@
     saving = true;
     const durationSec = stopTimer();
     try {
-      await api('/lead/' + lead.id + '/outcome', { method: 'POST', body: JSON.stringify({ outcome: key, note: $('notes').value, durationSec, ...extra }) });
-      toast(OUTCOMES[key].label + ' saved');
+      const saved = await api('/lead/' + lead.id + '/outcome', { method: 'POST', body: JSON.stringify({ outcome: key, note: $('notes').value, durationSec, ...extra }) });
+      const crm = saved.crm || {};
+      if (crm.ok) toast(OUTCOMES[key].label + ' saved and added to AgentLab CRM');
+      else if (crm.error) toast(OUTCOMES[key].label + ' saved, but the CRM sync failed: ' + crm.error, true);
+      else toast(OUTCOMES[key].label + ' saved');
       loadStats(true);
       await next();
     } catch (e) {
@@ -561,7 +564,7 @@
   }
 
   // ---------- Settings ----------
-  const SETTING_IDS = ['dailyGoal', 'maxAttempts', 'retryDays', 'gatekeeperRetryDays', 'enforceCallWindow', 'aiScripts', 'aiSearchFallback', 'callWindowStart', 'callWindowEnd', 'callMethod', 'textnowUrl', 'bookingLink', 'gmailAccount', 'senderName', 'senderCompany', 'website', 'emailSubject', 'emailTemplate', 'script'];
+  const SETTING_IDS = ['dailyGoal', 'maxAttempts', 'retryDays', 'gatekeeperRetryDays', 'enforceCallWindow', 'crmSync', 'aiScripts', 'aiSearchFallback', 'callWindowStart', 'callWindowEnd', 'callMethod', 'textnowUrl', 'bookingLink', 'gmailAccount', 'senderName', 'senderCompany', 'website', 'emailSubject', 'emailTemplate', 'script'];
   const sid = k => 'set' + k[0].toUpperCase() + k.slice(1);
   let dataFileInfo = '';
   function fillSettings() {

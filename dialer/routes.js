@@ -6,7 +6,8 @@ const crypto = require('crypto');
 const store = require('./store');
 const queue = require('./queue');
 const aiScript = require('./ai-script');
-const { FIELDS, autoMap, parseFile, normalizeRecord } = require('./parse');
+const crmSync = require('./crm-sync');
+const { FIELDS, autoMap, parseFile, normalizeRecord, fillFromExtra } = require('./parse');
 
 const PENDING_TTL_MS = 30 * 60 * 1000;
 const pendingImports = new Map(); // importId -> { createdAt, filename, parsed }
@@ -32,6 +33,18 @@ function fill(template, lead, s) {
   return String(template || '').replace(/\{\{(\w+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));
 }
 
+// Fix leads imported before the column mapping learned First/Last Name and
+// "Vendor Formal Name": fill missing names from their saved extra columns.
+function repairLeads() {
+  let fixed = 0;
+  for (const lead of store.allLeads()) {
+    if ((lead.businessName && lead.contactName) || !lead.extra) continue;
+    if (fillFromExtra(lead)) { fixed++; aiScript.invalidate(lead.id); }
+  }
+  if (fixed) store.save();
+  return fixed;
+}
+
 function csvCell(v) {
   const s = v === null || v === undefined ? '' : String(v);
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -50,13 +63,14 @@ function guessSource(filename) {
     .slice(0, 60) || 'Imported list';
 }
 
-module.exports = function mountDialer(app, ...guards) {
+module.exports = function mountDialer(app, guards = [], deps = {}) {
   const r = express.Router();
   const send = fn => async (req, res) => {
     try { res.json(await fn(req, res)); }
     catch (err) { res.status(err.status || 400).json({ error: err.message }); }
   };
 
+  r.post('/repair', send(() => ({ fixed: repairLeads() })));
   r.get('/outcomes', (req, res) => res.json(queue.OUTCOMES));
 
   r.get('/next', send(req => {
@@ -71,7 +85,27 @@ module.exports = function mountDialer(app, ...guards) {
     return { lead };
   }));
 
-  r.post('/lead/:id/outcome', express.json(), send(req => queue.logOutcome(req.params.id, req.body || {})));
+  // Logs the outcome first (never blocked by the CRM), then pushes promising
+  // leads into AgentLab's CRM and reports what happened.
+  r.post('/lead/:id/outcome', express.json(), send(async req => {
+    const body = req.body || {};
+    const res = queue.logOutcome(req.params.id, body);
+    try {
+      const lead = store.getLead(req.params.id);
+      res.crm = await crmSync.syncOutcome(deps.agent, lead, body.outcome, { meetingAt: body.meetingAt });
+    } catch (e) {
+      console.error('[dialer] CRM sync failed:', e.message);
+      res.crm = { error: e.message };
+    }
+    return res;
+  }));
+
+  // Manual push for a lead already logged as Interested or better.
+  r.post('/lead/:id/crm', express.json(), send(async req => {
+    const lead = store.getLead(req.params.id);
+    if (!lead) throw Object.assign(new Error('Lead not found'), { status: 404 });
+    return { crm: await crmSync.syncOutcome(deps.agent, lead, lead.status) };
+  }));
   r.post('/lead/:id/note', express.json(), send(req => queue.addNote(req.params.id, (req.body || {}).note)));
   r.post('/lead/:id/skip', express.json(), send(req => queue.skip(req.params.id, Number((req.body || {}).hours) || 4)));
   r.patch('/lead/:id', express.json(), send(req => ({ lead: queue.updateLead(req.params.id, req.body || {}) })));
@@ -161,6 +195,7 @@ module.exports = function mountDialer(app, ...guards) {
     res.send('﻿' + toCsv(rows, cols));
   });
 
+  try { const n = repairLeads(); if (n) console.log('[dialer] filled missing names on ' + n + ' leads'); } catch (e) { console.error('[dialer] repair failed:', e.message); }
   app.use('/api/dialer', ...guards, r);
   store.load();
   console.log('Cold Call Dialer mounted at /dialer.html (data: ' + store.DATA_FILE + ', leads: ' + store.allLeads().length + ')');

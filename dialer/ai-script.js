@@ -281,4 +281,6 @@ async function getOrCreate(leadId, { force = false } = {}) {
   return p;
 }
 
-module.exports = { getOrCreate, getCached, enabled, summarizePage, candidateUrl, parseScript };
+function invalidate(leadId) { if (loadCache()[leadId]) { delete loadCache()[leadId]; saveCacheSoon(); } }
+
+module.exports = { invalidate, getOrCreate, getCached, enabled, summarizePage, candidateUrl, parseScript };

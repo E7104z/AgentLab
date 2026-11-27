@@ -213,7 +213,7 @@ function createServer(agent) {
   api.get('/digest-preview', wrap(async (req) => agent.reports.dailyDigest(client(req).id)));
 
   // Cold Call Dialer (dialer/*, public/dialer.html): same login and rate limit as the dashboard.
-  mountDialer(app, apiLimiter, requireAuth);
+  mountDialer(app, [apiLimiter, requireAuth], { agent });
 
   app.use('/api', api);
   app.use('/', apiLimiter, requireAuth, express.static(path.join(__dirname, '..', '..', 'public')));
