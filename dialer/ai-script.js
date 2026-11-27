@@ -12,6 +12,7 @@ const path = require('path');
 const dns = require('dns').promises;
 const net = require('net');
 const store = require('./store');
+const { looksGarbled } = require('./parse');
 
 const MODEL = process.env.DIALER_AI_MODEL || 'claude-haiku-5-5';
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -268,6 +269,7 @@ async function getOrCreate(leadId, { force = false } = {}) {
   if (store.settings().aiScripts === false) return { ai: null, reason: 'off' };
   const lead = store.getLead(leadId);
   if (!lead) throw Object.assign(new Error('Lead not found'), { status: 404 });
+  if (looksGarbled(lead)) return { ai: null, reason: 'bad_name' };
   const cached = getCached(leadId);
   if (cached && !force) return { ai: cached };
   if (inflight.has(leadId)) return inflight.get(leadId);
