@@ -224,7 +224,7 @@ function updateLead(leadId, patch) {
 // new list only fills blank fields and adds its source tag.
 function importRecords(records, mapping, { source, defaultState }) {
   const now = new Date().toISOString();
-  let added = 0, merged = 0, noPhone = 0, dupInFile = 0;
+  let added = 0, merged = 0, noPhone = 0, dupInFile = 0, repaired = 0;
   const seenInFile = new Set();
   for (const rec of records) {
     const n = normalizeRecord(rec, mapping, { defaultState });
@@ -233,6 +233,15 @@ function importRecords(records, mapping, { source, defaultState }) {
     seenInFile.add(n.phoneDigits);
     const existing = store.leadByPhone(n.phoneDigits);
     if (existing) {
+      // An earlier import left this lead with a garbled name; this row is clean, so
+      // take its name/location/contact fields. Calls, notes, status and ids stay.
+      if (looksGarbled(existing) && !looksGarbled(n)) {
+        for (const k of ['businessName', 'contactName', 'firstName', 'city', 'state', 'zip', 'county', 'address', 'industry', 'codes', 'website', 'email']) {
+          if (n[k]) existing[k] = n[k];
+        }
+        repaired++;
+        try { require('./ai-script').invalidate(existing.id); } catch {}
+      }
       for (const [k, v] of Object.entries(n)) {
         if (k === 'extra') existing.extra = { ...v, ...(existing.extra || {}) };
         else if (v && !existing[k]) existing[k] = v;
@@ -247,7 +256,7 @@ function importRecords(records, mapping, { source, defaultState }) {
     });
     added++;
   }
-  const entry = { at: now, source, records: records.length, added, alreadyInDialer: merged, duplicatesInFile: dupInFile, skippedNoPhone: noPhone };
+  const entry = { at: now, source, records: records.length, added, alreadyInDialer: merged, duplicatesInFile: dupInFile, skippedNoPhone: noPhone, repaired };
   store.load().imports.push(entry);
   store.save();
   return entry;
