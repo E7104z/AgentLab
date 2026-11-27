@@ -5,6 +5,7 @@ const { createDraft, sendEmail, sendAlertEmail, listUnprocessedLeads, markProces
 const { loadClients, matchClient } = require('./client-registry');
 const sms = require('./sms-outreach');
 const smsStore = require('./sms-store');
+const mountDialer = require('./dialer/routes');
 
 const app = express();
 app.use(express.json({ limit: '8mb' })); // large enough for pasted/uploaded lead CSVs
@@ -70,6 +71,9 @@ function requireAuth(req, res, next) {
 
 app.use(requireAuth);
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Cold Call Dialer module (dialer/*, public/dialer.html). Behind requireAuth.
+mountDialer(app);
 
 function buildSystemPrompt(client) {
   return "You are triaging and drafting replies on behalf of " + client.businessName + ".\n" +
@@ -357,5 +361,6 @@ const port = process.env.PORT || 3456;
 app.listen(port, () => {
   console.log('Multi-client lead response agent running: http://localhost:' + port);
   console.log('Clients loaded: ' + loadClients().map(c => c.id).join(', '));
+  console.log('Cold Call Dialer: http://localhost:' + port + '/dialer.html');
   console.log('SMS outreach dashboard: http://localhost:' + port + '/outreach.html (Twilio configured: ' + sms.isConfigured() + ', dryRun: ' + sms.config().dryRun + ')');
 });
