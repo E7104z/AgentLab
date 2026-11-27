@@ -64,6 +64,28 @@ A multi-client AI agent that reads a real inbox, decides which messages are genu
 - `GET /api/poll-log` — last 100 poll cycle results (decisions, actions, filtered/unrouted flags)
 - `POST /api/poll-now` — trigger an immediate poll cycle
 
+## Cold Call Dialer module (`/dialer.html`)
+
+A one-person power-dialer for working large lead lists by phone. You place the call (TextNow); the dialer decides who is next, shows everything known about the lead, and logs the outcome in one keystroke.
+
+| Piece | File |
+|---|---|
+| Import CSV / XLSX / PDF lists, auto column mapping, de-dupe by phone | `dialer/parse.js`, `dialer/pdf-extract.js` |
+| Queue (callbacks due → retries due → random fresh lead), outcomes, stats | `dialer/queue.js` |
+| JSON store (atomic writes) | `dialer/store.js` |
+| API under `/api/dialer/*` (behind the same Basic auth) | `dialer/routes.js` |
+| Screen | `public/dialer.html` |
+
+**Queue order:** callbacks whose time has come, then no-answer/voicemail/gatekeeper retries whose wait is over (default 2 days, max 3 tries), then a random never-called lead. Leads are only served during their local business hours (9-5 weekdays, by state) unless you turn that off in Settings.
+
+**Outcomes (keys 1-0):** No Answer, Left Voicemail, Gatekeeper, Call Back (date required), Interested, Meeting Booked (opens a Google Calendar event), Closed - Won, Not Interested, Bad Number, Do Not Call. Do Not Call is permanent: re-importing the number never resets it.
+
+**Calling:** on a computer the Call button copies the number and opens/focuses one TextNow web tab; on a phone it opens a `tel:` link (on Android pick TextNow as the calling app). TextNow has no API, so the outcome is logged by you; the call timer runs from the Call click to the outcome click.
+
+**PDF lists:** table PDFs (county SLBE/LSBE directories) are read deterministically: the header row sets the columns and each phone number anchors one business, with wrapped cells assigned whether the PDF centers or bottom-aligns them. PDFs with no detectable table fall back to Claude extraction (uses `ANTHROPIC_API_KEY`) and are labeled "AI extraction" in the preview so you check the rows. Old `.xls` files must be re-saved as `.xlsx` or `.csv`.
+
+**Storage (Railway):** set `DIALER_DATA_FILE=/data/dialer-data.json` and mount a Railway Volume at `/data`, or every note is lost on the next deploy. Settings → Export leads / call log CSV is the backup.
+
 ## Known gaps / next steps
 
 - **No crash/failure alerting yet** — if polling errors out repeatedly, nothing currently notifies anyone. Needed before this handles a paying client's leads unsupervised.

@@ -22,7 +22,7 @@ function buildRawMessage({ to, subject, body, replyTo, fromDisplayName }) {
     'Content-Type: text/plain; charset="UTF-8"',
     'MIME-Version: 1.0',
     'To: ' + to,
-    'From: ' + (fromDisplayName || 'Jason Griffin') + ' <jason@therealhelp.com>',
+    'From: ' + (fromDisplayName || 'Jason Griffin') + ' <' + (process.env.GMAIL_FROM_EMAIL || 'jason@therealhelp.com') + '>',
     'Reply-To: ' + (replyTo || 'jason@therealhelp.com'),
     'Subject: ' + encodeSubject_(subject),
     '',

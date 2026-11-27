@@ -7,8 +7,10 @@
     "auth": "node get-refresh-token.js"
   },
   "dependencies": {
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "express": "^4.19.2",
     "googleapis": "^140.0.1",
-    "dotenv": "^16.4.5"
+    "pdfjs-dist": "^4.10.38"
   }
 }
