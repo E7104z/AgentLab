@@ -97,6 +97,15 @@
   .nav-row { display: flex; gap: 8px; margin-top: 12px; }
   .nav-row .btn { flex: 1; }
   .script { white-space: pre-wrap; font-size: 13.5px; line-height: 1.6; max-height: calc(100vh - 260px); overflow: auto; }
+  .ai { border: 1px solid var(--border, #2a2f3a); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 13.5px; line-height: 1.55; }
+  .ai .hook { color: var(--amber); font-size: 12.5px; margin-bottom: 8px; }
+  .ai .hook .src { color: var(--dim, #8b93a1); }
+  .ai .lbl { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: var(--amber); display: block; margin-top: 10px; }
+  .ai .lbl:first-child { margin-top: 0; }
+  .ai .say { margin: 2px 0 0; }
+  .ai .obj { margin-top: 6px; } .ai .obj b { font-weight: 600; }
+  .ai .bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
+  .ai details > summary { cursor: pointer; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: var(--amber); margin-top: 10px; }
   .script .h { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: var(--amber); display: block; margin-top: 10px; }
   .empty { text-align: center; padding: 50px 20px; color: var(--dim); font-size: 14px; line-height: 1.6; }
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--border-2); padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 50; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
@@ -235,6 +244,7 @@
       <!-- Script -->
       <div class="panel script-col">
         <div class="panel-label"><span>Script</span><button class="qbtn" id="editScript">Edit</button></div>
+        <div id="aiBox" class="ai hidden"></div>
         <div class="script" id="script"></div>
       </div>
     </div>
@@ -307,6 +317,8 @@
           <div><label>Tries before retiring</label><input type="number" id="setMaxAttempts" /></div>
           <div><label>Days before retry</label><input type="number" id="setRetryDays" /></div>
         </div>
+        <label><input type="checkbox" id="setAiScripts" /> Write a personalized script for each lead with AI (uses the AgentLab Anthropic key)</label>
+        <label><input type="checkbox" id="setAiSearchFallback" /> If a lead has no website to read, search the web for them (about 1 cent per lead)</label>
         <label><input type="checkbox" id="setEnforceCallWindow" /> Only serve leads during their local business hours (weekdays)</label>
         <div class="grid3">
           <div><label>From (their time, 24h)</label><input type="number" id="setCallWindowStart" min="0" max="23" /></div>

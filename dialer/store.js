@@ -25,6 +25,9 @@ const DEFAULT_SETTINGS = {
   callMethod: 'auto',      // auto | textnow-web | tel
   textnowUrl: 'https://www.textnow.com/messaging',
   bookingLink: '',
+  aiScripts: true,         // personalized AI script per lead (needs ANTHROPIC_API_KEY)
+  aiSearchFallback: true,  // web search when the lead has no reachable website (~1 cent each)
+  aiDailyCap: 200,         // max AI scripts generated per day
   gmailAccount: 'info@thecdscloud.com', // Gmail / Calendar links open in this Google account
   senderName: 'Jason Griffin',
   senderCompany: 'The Real Help',

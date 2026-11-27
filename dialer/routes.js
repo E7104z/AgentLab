@@ -5,6 +5,7 @@ const express = require('express');
 const crypto = require('crypto');
 const store = require('./store');
 const queue = require('./queue');
+const aiScript = require('./ai-script');
 const { FIELDS, autoMap, parseFile, normalizeRecord } = require('./parse');
 
 const PENDING_TTL_MS = 30 * 60 * 1000;
@@ -89,6 +90,10 @@ module.exports = function mountDialer(app, ...guards) {
     return out;
   }));
 
+  // Personalized AI script. Returns the cached one instantly, else generates it
+  // (a few seconds). The screen also calls this for the NEXT lead ahead of time.
+  r.post('/lead/:id/ai-script', express.json(), send(req => aiScript.getOrCreate(req.params.id, { force: !!(req.body || {}).force })));
+
   r.post('/render', express.json(), send(req => {
     const lead = store.getLead((req.body || {}).leadId);
     const s = store.settings();
@@ -101,7 +106,7 @@ module.exports = function mountDialer(app, ...guards) {
   r.get('/filters', send(() => queue.filterOptions()));
   r.get('/imports', send(() => ({ imports: store.load().imports.slice().reverse() })));
 
-  r.get('/settings', send(() => ({ settings: store.settings(), dataFile: store.DATA_FILE, aiPdfFallback: Boolean(process.env.ANTHROPIC_API_KEY) })));
+  r.get('/settings', send(() => ({ settings: store.settings(), dataFile: store.DATA_FILE, aiPdfFallback: Boolean(process.env.ANTHROPIC_API_KEY), aiScripts: aiScript.enabled() })));
   r.post('/settings', express.json(), send(req => ({ settings: store.updateSettings(req.body || {}) })));
 
   // ---- Import: step 1, upload raw bytes and preview -------------------------
