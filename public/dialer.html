@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cold Call Dialer - Agent Lab</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+  :root {
+    --bg: #0E1013; --panel: #15181D; --panel-2: #1B1F26; --border: #262B33; --border-2: #323844;
+    --text: #E8E6E1; --dim: #868C99; --amber: #F2A93B; --amber-dim: rgba(242,169,59,0.12);
+    --green: #34D399; --green-dim: rgba(52,211,153,0.12); --red: #F87171; --red-dim: rgba(248,113,113,0.12);
+    --blue: #60A5FA; --blue-dim: rgba(96,165,250,0.12);
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); margin: 0; color: var(--text); font-family: var(--sans); font-size: 14px; }
+  a { color: var(--amber); }
+  button { font-family: var(--sans); cursor: pointer; }
+  input, select, textarea { width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: var(--sans); font-size: 13.5px; padding: 8px 10px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--amber); }
+  textarea { resize: vertical; line-height: 1.45; }
+  input[type="checkbox"] { width: auto; }
+  label { display: block; font-size: 12px; color: var(--dim); margin: 12px 0 5px; }
+  .mono { font-family: var(--mono); }
+  .dim { color: var(--dim); }
+  .hidden { display: none !important; }
+
+  /* Top bar */
+  .top { position: sticky; top: 0; z-index: 10; background: rgba(14,16,19,0.96); border-bottom: 1px solid var(--border); }
+  .top-inner { max-width: 1320px; margin: 0 auto; padding: 10px 18px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .brand { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--amber); white-space: nowrap; }
+  .brand b { color: var(--text); font-family: var(--sans); font-size: 16px; letter-spacing: 0; text-transform: none; margin-left: 8px; }
+  .tabs { display: flex; gap: 4px; }
+  .tab { background: none; border: 1px solid transparent; color: var(--dim); padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+  .tab.active { color: var(--text); background: var(--panel-2); border-color: var(--border); }
+  .score { display: flex; gap: 14px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+  .chip { font-family: var(--mono); font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+  .chip b { color: var(--text); font-size: 14px; font-weight: 600; margin-right: 3px; }
+  .goal { width: 120px; height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
+  .goal i { display: block; height: 100%; background: var(--amber); width: 0; transition: width .3s; }
+  .search { position: relative; width: 220px; }
+  .search input { padding: 6px 10px; font-size: 12.5px; }
+  .search-results { position: absolute; top: 34px; right: 0; width: 340px; background: var(--panel); border: 1px solid var(--border-2); border-radius: 8px; max-height: 360px; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .search-results div { padding: 9px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+  .search-results div:hover { background: var(--panel-2); }
+
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 16px 18px 40px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .panel-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin: 0 0 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+  /* Filters */
+  .filters { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) auto; gap: 8px; align-items: end; margin-bottom: 14px; }
+  .filters label { margin: 0 0 4px; font-size: 11px; }
+  .filters select, .filters input { padding: 6px 8px; font-size: 12.5px; }
+  .queue-line { font-family: var(--mono); font-size: 11.5px; color: var(--dim); margin: -6px 0 12px; }
+
+  /* Dial layout */
+  .dial { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr) minmax(0, 0.95fr); gap: 14px; align-items: start; }
+  .biz { font-size: 22px; font-weight: 700; line-height: 1.25; margin: 2px 0 4px; word-break: break-word; }
+  .contact { font-size: 15px; margin-bottom: 12px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .badge { font-family: var(--mono); font-size: 10.5px; padding: 3px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--panel-2); color: var(--dim); letter-spacing: .03em; }
+  .badge.amber { color: var(--amber); border-color: rgba(242,169,59,.35); background: var(--amber-dim); }
+  .badge.green { color: var(--green); border-color: rgba(52,211,153,.35); background: var(--green-dim); }
+  .badge.blue { color: var(--blue); border-color: rgba(96,165,250,.35); background: var(--blue-dim); }
+  .badge.red { color: var(--red); border-color: rgba(248,113,113,.35); background: var(--red-dim); }
+  .phone-row { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .phone { font-family: var(--mono); font-size: 24px; font-weight: 600; letter-spacing: .02em; }
+  .call-btn { background: var(--green); color: #052016; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; padding: 11px 20px; white-space: nowrap; }
+  .call-btn.live { background: var(--red); color: #2A0606; }
+  .timer { font-family: var(--mono); font-size: 13px; color: var(--dim); min-width: 46px; }
+  .kv { display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px; font-size: 13px; }
+  .kv dt { color: var(--dim); }
+  .kv dd { margin: 0; word-break: break-word; }
+  .history { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; max-height: 260px; overflow: auto; }
+  .h-item { font-size: 12.5px; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+  .h-item:last-child { border-bottom: none; }
+  .h-item .when { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .h-item .what { font-weight: 600; margin-left: 6px; }
+  .h-item .note { color: var(--text); margin-top: 3px; white-space: pre-wrap; }
+
+  .outcomes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+  .oc { background: var(--panel-2); border: 1px solid var(--border-2); color: var(--text); border-radius: 7px; padding: 10px 10px; font-size: 13.5px; font-weight: 600; text-align: left; display: flex; justify-content: space-between; align-items: center; }
+  .oc:hover { border-color: var(--amber); }
+  .oc kbd { font-family: var(--mono); font-size: 10.5px; color: var(--dim); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  .oc.good { border-color: rgba(52,211,153,.4); }
+  .oc.bad { border-color: rgba(248,113,113,.35); }
+  .oc.sel { background: var(--amber-dim); border-color: var(--amber); }
+  .extra-panel { margin-top: 10px; padding: 12px; background: var(--panel-2); border: 1px solid var(--amber); border-radius: 8px; }
+  .quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .qbtn { background: var(--panel); border: 1px solid var(--border-2); color: var(--text); border-radius: 5px; padding: 5px 9px; font-size: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .btn { background: var(--amber); color: #1A1400; border: none; border-radius: 6px; font-weight: 600; font-size: 13.5px; padding: 9px 14px; white-space: nowrap; }
+  .btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--border-2); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .nav-row { display: flex; gap: 8px; margin-top: 12px; }
+  .nav-row .btn { flex: 1; }
+  .script { white-space: pre-wrap; font-size: 13.5px; line-height: 1.6; max-height: calc(100vh - 260px); overflow: auto; }
+  .script .h { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: var(--amber); display: block; margin-top: 10px; }
+  .empty { text-align: center; padding: 50px 20px; color: var(--dim); font-size: 14px; line-height: 1.6; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--border-2); padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 50; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .toast.err { border-color: var(--red); color: var(--red); }
+  .keys { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 10px; line-height: 1.7; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  td.mono, td .badge { white-space: nowrap; }
+  .filter-toggle { display: none; margin-bottom: 10px; }
+  tr.click:hover td { background: var(--panel-2); cursor: pointer; }
+
+  .drop { border: 1.5px dashed var(--border-2); border-radius: 10px; padding: 30px; text-align: center; color: var(--dim); cursor: pointer; }
+  .drop.over { border-color: var(--amber); color: var(--text); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+  .stat-big { font-size: 26px; font-weight: 700; font-family: var(--mono); }
+  .map-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 14px; }
+  .map-grid label { margin: 0 0 3px; font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .map-grid select { padding: 5px 7px; font-size: 12px; }
+
+  @media (max-width: 1100px) {
+    .dial { grid-template-columns: 1fr 1fr; }
+    .dial .script-col { grid-column: 1 / -1; }
+    .filters { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  }
+  @media (max-width: 720px) {
+    .top { position: static; }
+    .dial, .grid2, .grid3 { grid-template-columns: 1fr; }
+    .filters { grid-template-columns: 1fr 1fr; display: none; }
+    .filters.open { display: grid; }
+    .filter-toggle { display: inline-block; }
+    .score { margin-left: 0; width: 100%; }
+    .search { width: 100%; }
+    .phone { font-size: 21px; }
+    .biz { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="top-inner">
+    <div class="brand">Agent Lab <b>Cold Call Dialer</b></div>
+    <div class="tabs">
+      <button class="tab active" data-tab="dial">Dial</button>
+      <button class="tab" data-tab="pipeline">Pipeline</button>
+      <button class="tab" data-tab="import">Import</button>
+      <button class="tab" data-tab="stats">Stats</button>
+      <button class="tab" data-tab="settings">Settings</button>
+    </div>
+    <div class="score">
+      <span class="chip"><b id="sDials">0</b>/<span id="sGoal">60</span> dials</span>
+      <div class="goal" title="Daily goal"><i id="sGoalBar"></i></div>
+      <span class="chip"><b id="sConvos">0</b>convos</span>
+      <span class="chip"><b id="sMeetings">0</b>meetings</span>
+      <span class="chip"><b id="sWins">0</b>wins</span>
+      <div class="search">
+        <input id="searchBox" placeholder="Find lead (name, phone, email)" autocomplete="off" />
+        <div class="search-results hidden" id="searchResults"></div>
+      </div>
+      <a href="/" class="chip" title="Back to Agent Lab">Agent Lab &rarr;</a>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ================= DIAL ================= -->
+  <section id="tab-dial">
+    <button class="btn ghost filter-toggle" id="filterToggle">Filters</button>
+    <div class="filters" id="filtersBox">
+      <div><label>List</label><select id="fSource"><option value="">All lists</option></select></div>
+      <div><label>State</label><select id="fState"><option value="">All states</option></select></div>
+      <div><label>City</label><select id="fCity"><option value="">All cities</option></select></div>
+      <div><label>County</label><select id="fCounty"><option value="">All counties</option></select></div>
+      <div><label>Owner</label><select id="fEthnicity"><option value="">All owners</option></select></div>
+      <div><label>Keyword (industry, name)</label><input id="fKeyword" placeholder="e.g. cleaning" /></div>
+      <div><button class="btn ghost" id="clearFilters">Clear</button></div>
+    </div>
+    <div class="queue-line" id="queueLine"></div>
+
+    <div id="emptyState" class="panel empty hidden"></div>
+
+    <div class="dial" id="dialView">
+      <!-- Lead card -->
+      <div class="panel">
+        <div class="panel-label"><span>Lead</span><span id="leadReason"></span></div>
+        <div class="biz" id="lBiz"></div>
+        <div class="contact" id="lContact"></div>
+        <div class="badges" id="lBadges"></div>
+        <div class="phone-row">
+          <div class="phone" id="lPhone"></div>
+          <button class="call-btn" id="callBtn" title="C">Call</button>
+          <span class="timer" id="timer"></span>
+        </div>
+        <dl class="kv" id="lDetails"></dl>
+        <div class="history" id="lHistory"></div>
+      </div>
+
+      <!-- Notes + outcomes -->
+      <div class="panel">
+        <div class="panel-label"><span>Notes &amp; outcome</span><span class="mono" id="lLocal"></span></div>
+        <textarea id="notes" rows="6" placeholder="Notes from this call (who you spoke to, pain points, what they use now)..."></textarea>
+        <div class="outcomes" id="outcomes"></div>
+
+        <div class="extra-panel hidden" id="extraPanel">
+          <div id="extraTitle" style="font-weight:600;margin-bottom:4px"></div>
+          <div id="extraWhen">
+            <label style="margin-top:6px">Date &amp; time (your time)</label>
+            <input type="datetime-local" id="extraAt" />
+            <div class="quick" id="quickTimes"></div>
+          </div>
+          <div id="extraAmount" class="hidden">
+            <label>Amount ($)</label>
+            <input type="number" id="amount" value="500" min="0" step="1" />
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn" id="extraSave">Save &amp; next</button>
+            <button class="btn ghost" id="extraCancel">Cancel</button>
+          </div>
+        </div>
+
+        <div class="nav-row">
+          <button class="btn ghost" id="emailBtn" title="E">Email follow-up</button>
+          <button class="btn ghost" id="noteBtn">Save note only</button>
+        </div>
+        <div class="nav-row">
+          <button class="btn ghost" id="skipBtn" title="S">Skip (hide 4 hrs)</button>
+          <button class="btn" id="nextBtn" title="N">Next lead &rarr;</button>
+        </div>
+        <div class="keys">Keys: <b>C</b> call &middot; <b>1-9, 0</b> outcome &middot; <b>N</b> next &middot; <b>S</b> skip &middot; <b>E</b> email &middot; <b>/</b> notes &middot; <b>Esc</b> leave notes</div>
+      </div>
+
+      <!-- Script -->
+      <div class="panel script-col">
+        <div class="panel-label"><span>Script</span><button class="qbtn" id="editScript">Edit</button></div>
+        <div class="script" id="script"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PIPELINE ================= -->
+  <section id="tab-pipeline" class="hidden">
+    <div class="panel">
+      <div class="panel-label"><span>Callbacks, interested, meetings &amp; wins</span><span id="pipeCount"></span></div>
+      <table>
+        <thead><tr><th>Business</th><th>Contact</th><th>Phone</th><th>Status</th><th>Next / meeting</th><th>Last note</th></tr></thead>
+        <tbody id="pipeBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= IMPORT ================= -->
+  <section id="tab-import" class="hidden">
+    <div class="grid2">
+      <div class="panel">
+        <div class="panel-label"><span>Add a lead list</span></div>
+        <div class="drop" id="drop">Drop a CSV, Excel (.xlsx) or PDF list here, or click to choose<br><span class="dim" style="font-size:12px">Leads are de-duplicated by phone number. Existing leads keep their notes and status.</span></div>
+        <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.pdf" class="hidden" />
+        <div id="importStatus" class="dim" style="margin-top:12px"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-label"><span>Import history</span></div>
+        <table><thead><tr><th>When</th><th>List</th><th>Added</th><th>Merged</th><th>No phone</th></tr></thead><tbody id="importHistory"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel hidden" id="previewPanel" style="margin-top:14px">
+      <div class="panel-label"><span>Preview</span><span id="previewMethod"></span></div>
+      <div class="grid3" id="previewTotals"></div>
+      <div class="grid2" style="margin-top:6px">
+        <div><label>List name (shown on each lead)</label><input id="impSource" /></div>
+        <div><label>State for rows with no state (e.g. GA)</label><input id="impState" maxlength="2" placeholder="Leave blank if the list has states" /></div>
+      </div>
+      <label style="margin-top:16px">Column mapping (fix any column that landed in the wrong field)</label>
+      <div class="map-grid" id="mapGrid"></div>
+      <label style="margin-top:16px">First rows as they will be imported</label>
+      <div style="overflow:auto"><table><thead><tr><th>Business</th><th>Contact</th><th>Phone</th><th>Email</th><th>City</th><th>State</th><th>Industry</th></tr></thead><tbody id="previewRows"></tbody></table></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="commitImport">Import leads</button>
+        <button class="btn ghost" id="cancelImport">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= STATS ================= -->
+  <section id="tab-stats" class="hidden">
+    <div class="grid3" id="statTiles"></div>
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-label"><span>Last 14 days</span></div>
+      <table><thead><tr><th>Day</th><th>Dials</th><th>Conversations</th><th>Meetings</th><th>Wins</th><th>Talk time</th></tr></thead><tbody id="statDays"></tbody></table>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-label"><span>Lead pool</span></div>
+      <div id="statPool" class="badges"></div>
+    </div>
+  </section>
+
+  <!-- ================= SETTINGS ================= -->
+  <section id="tab-settings" class="hidden">
+    <div class="grid2">
+      <div class="panel">
+        <div class="panel-label"><span>Calling</span></div>
+        <div class="grid3">
+          <div><label>Daily dial goal</label><input type="number" id="setDailyGoal" /></div>
+          <div><label>Tries before retiring</label><input type="number" id="setMaxAttempts" /></div>
+          <div><label>Days before retry</label><input type="number" id="setRetryDays" /></div>
+        </div>
+        <label><input type="checkbox" id="setEnforceCallWindow" /> Only serve leads during their local business hours (weekdays)</label>
+        <div class="grid3">
+          <div><label>From (their time, 24h)</label><input type="number" id="setCallWindowStart" min="0" max="23" /></div>
+          <div><label>Until</label><input type="number" id="setCallWindowEnd" min="1" max="24" /></div>
+          <div><label>Gatekeeper retry (days)</label><input type="number" id="setGatekeeperRetryDays" /></div>
+        </div>
+        <label>Call button</label>
+        <select id="setCallMethod">
+          <option value="auto">Auto: phone opens dialer, computer copies number + opens TextNow</option>
+          <option value="textnow-web">Always copy number + open TextNow web</option>
+          <option value="tel">Always use phone link (tel:)</option>
+        </select>
+        <label>TextNow web address</label><input id="setTextnowUrl" />
+      </div>
+      <div class="panel">
+        <div class="panel-label"><span>Follow-up email</span></div>
+        <div class="grid2">
+          <div><label>Your name</label><input id="setSenderName" /></div>
+          <div><label>Company</label><input id="setSenderCompany" /></div>
+          <div><label>Website</label><input id="setWebsite" /></div>
+          <div><label>Booking link (Cal.com)</label><input id="setBookingLink" placeholder="https://cal.com/..." /></div>
+        </div>
+        <label>Google account for Gmail &amp; Calendar links</label><input id="setGmailAccount" />
+        <label>Subject</label><input id="setEmailSubject" />
+        <label>Body &mdash; {{firstName}} {{businessName}} {{website}} {{bookingLine}} {{senderName}} {{senderCompany}}</label>
+        <textarea id="setEmailTemplate" rows="9"></textarea>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-label"><span>Call script &mdash; {{firstName}} {{businessName}} {{city}} {{website}} work here too. Lines in CAPS become headings.</span></div>
+      <textarea id="setScript" rows="18"></textarea>
+    </div>
+    <div class="row" style="margin-top:14px; flex-wrap: wrap">
+      <button class="btn" id="saveSettings">Save settings</button>
+      <a class="btn ghost" href="/api/dialer/export/leads.csv" style="text-decoration:none">Export leads CSV</a>
+      <a class="btn ghost" href="/api/dialer/export/calls.csv" style="text-decoration:none">Export call log CSV</a>
+      <span class="dim mono" id="dataFile" style="font-size:11.5px"></span>
+    </div>
+  </section>
+</div>
+
+<script src="/dialer.js"></script>
+</body>
+</html>
