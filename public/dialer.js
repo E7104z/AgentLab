@@ -552,7 +552,7 @@
     $('commitImport').disabled = true;
     try {
       const r = await api('/import/commit', { method: 'POST', body: JSON.stringify({ importId: preview.importId, mapping: currentMapping(), source: $('impSource').value.trim(), defaultState: $('impState').value.trim() }) });
-      toast(r.added + ' new leads added, ' + r.alreadyInDialer + ' merged');
+      toast(r.added + ' new leads added, ' + r.alreadyInDialer + ' merged' + (r.repaired ? ', ' + r.repaired + ' garbled names fixed' : ''));
       preview = null; $('previewPanel').classList.add('hidden'); $('impSource').value = ''; $('impState').value = '';
       loadImports(); loadFilterOptions();
       if (!lead) next(true);
