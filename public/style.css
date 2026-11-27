@@ -10,6 +10,8 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .top-right { display: flex; gap: 10px; align-items: center; }
 .tabs { display: flex; gap: 2px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--border); overflow-x: auto; }
 .tabs button { border: 0; background: none; padding: 12px 14px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font: inherit; white-space: nowrap; }
+.tabs .navlink { margin-left: auto; padding: 12px 14px; color: var(--accent); text-decoration: none; white-space: nowrap; font-weight: 600; border-bottom: 2px solid transparent; }
+.tabs .navlink:hover { border-bottom-color: var(--accent); }
 .tabs button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 main { max-width: 1100px; margin: 0 auto; padding: 20px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
