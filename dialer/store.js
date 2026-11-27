@@ -25,6 +25,8 @@ const DEFAULT_SETTINGS = {
   callMethod: 'auto',      // auto | textnow-web | tel
   textnowUrl: 'https://www.textnow.com/messaging',
   bookingLink: '',
+  crmSync: true,           // push Interested / Meeting Booked / Closed-Won leads into AgentLab's CRM
+  crmClientId: 'default',  // which AgentLab client receives them
   aiScripts: true,         // personalized AI script per lead (needs ANTHROPIC_API_KEY)
   aiSearchFallback: true,  // web search when the lead has no reachable website (~1 cent each)
   aiDailyCap: 200,         // max AI scripts generated per day

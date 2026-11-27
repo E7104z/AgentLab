@@ -17,6 +17,7 @@ const FIELDS = [
 // Header text -> field. First match wins, so order matters (specific first).
 const HEADER_RULES = [
   [/^fax|fax\b/i, null],
+  [/^mailing\b/i, null],                // mailing address columns: keep as extra, don't override the main address/city
   [/address\s*(line)?\s*2|suite|apt/i, 'address2'],
   [/e-?mail/i, 'email'],
   [/web\s*site|website|url|web\b/i, 'website'],
@@ -32,7 +33,7 @@ const HEADER_RULES = [
   [/(alt|other|second|cell|mobile).*phone|phone.*(2|alt)|^cell|^mobile/i, 'phoneAlt'],
   [/phone|telephone|^tel\b/i, 'phone'],
   [/contact|owner|principal|representative|first.*last|full name/i, 'contactName'],
-  [/(business|company|firm|vendor|legal|organization)\s*name|^company$|^business$|^firm$|^title$|^name$|^vendor$|^dba/i, 'businessName'],
+  [/(business|company|firm|vendor|legal|formal|trade|organization)\b.*\bname|^company$|^business$|^firm$|^title$|^name$|^vendor$|^dba/i, 'businessName'],
   [/address|street/i, 'address'],
   [/description|business\s*type|category|industry|services?|specialt|commodit|work\s*type/i, 'industry']
 ];
@@ -43,8 +44,9 @@ function autoMap(headers) {
   for (const h of headers) {
     const label = String(h || '').trim();
     if (!label) continue;
+    const probe = label.replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ');   // Vendor_Formal_Name -> Vendor Formal Name
     for (const [re, field] of HEADER_RULES) {
-      if (!re.test(label)) continue;
+      if (!re.test(probe)) continue;
       if (field && !used.has(field)) { mapping[label] = field; used.add(field); }
       else if (field === 'phone' && !used.has('phoneAlt')) { mapping[label] = 'phoneAlt'; used.add('phoneAlt'); }
       break;
@@ -282,6 +284,31 @@ function sectorsFromNaics(codes) {
 function firstLine(s) { return String(s || '').split('\n')[0].trim(); }
 function oneLine(s) { return String(s || '').replace(/\s*\n\s*/g, ' ').replace(/\s{2,}/g, ' ').trim(); }
 
+
+// Some files split the owner into First/Last Name columns, or call the company
+// "Vendor Formal Name". Pick those out of the unmapped columns.
+const normKey = k => String(k).replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+function fillFromExtra(lead) {
+  const ex = lead.extra || {};
+  const find = re => {
+    for (const [k, v] of Object.entries(ex)) if (re.test(normKey(k)) && String(v).trim()) return String(v).trim();
+    return '';
+  };
+  let changed = false;
+  if (!lead.businessName) {
+    const v = find(/^(?:(?:vendor|firm|company|business|legal|formal|trade|organization)\b.*\bname|dba|company|business|vendor|firm)$/);
+    if (v) { lead.businessName = oneLine(v); changed = true; }
+  }
+  if (!lead.contactName) {
+    const first = find(/^(?:contact |owner |principal )?first name$/);
+    const last = find(/^(?:contact |owner |principal )?last name$/);
+    const full = find(/^(?:contact|owner|principal)(?: person)?(?: name)?$/);
+    const name = fixShoutedWords([first, last].filter(Boolean).join(' ') || full);
+    if (name) { lead.contactName = name; lead.firstName = firstNameOf(name); changed = true; }
+  }
+  return changed;
+}
+
 function normalizeRecord(rec, mapping, opts = {}) {
   const lead = {};
   const extra = {};
@@ -355,7 +382,8 @@ function normalizeRecord(rec, mapping, opts = {}) {
   delete lead.address2;
   lead.firstName = firstNameOf(lead.contactName);
   lead.extra = extra;
+  fillFromExtra(lead);
   return lead;
 }
 
-module.exports = { FIELDS, autoMap, parseFile, normalizeRecord, phoneDigits, formatPhone, parseCsvText, firstNameOf };
+module.exports = { fillFromExtra, FIELDS, autoMap, parseFile, normalizeRecord, phoneDigits, formatPhone, parseCsvText, firstNameOf };
