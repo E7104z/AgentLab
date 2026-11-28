@@ -6,6 +6,7 @@
 
 const ExcelJS = require('exceljs');
 const { extractPdfTable, extractPdfText, PHONE_RE_G, EMAIL_RE_G } = require('./pdf-extract');
+const leadClean = require('./clean');
 
 // Lead fields the dialer understands, in display order.
 const FIELDS = [
@@ -366,8 +367,8 @@ function normalizeRecord(rec, mapping, opts = {}) {
   }
 
   lead.businessName = oneLine(lead.businessName);
-  lead.city = fixShoutedWords(firstLine(lead.city));
-  lead.county = firstLine(lead.county).replace(/\s+county$/i, '');
+  lead.city = leadClean.normalizeCity(firstLine(lead.city));
+  lead.county = leadClean.normalizeCounty(firstLine(lead.county));
   lead.state = firstLine(lead.state).toUpperCase().slice(0, 2);
   if (lead.state && !STATE_ABBR.has(lead.state)) lead.state = '';
   if (!lead.state && opts.defaultState) lead.state = String(opts.defaultState).toUpperCase().slice(0, 2);
@@ -383,6 +384,7 @@ function normalizeRecord(rec, mapping, opts = {}) {
   lead.firstName = firstNameOf(lead.contactName);
   lead.extra = extra;
   fillFromExtra(lead);
+  leadClean.cleanLead(lead, null);   // old review flags out, one spelling per city / owner value
   return lead;
 }
 

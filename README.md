@@ -54,3 +54,12 @@ Dashboard API (Basic auth): `/api/config`, `/api/clients`, `/api/agent-status`, 
 ## History
 
 v1 (July 2026): one inbox, one client, JSON scraped from free text, an unused SMS subsystem. v2 (Nov 2026): Postgres, the outbox, threading, the full lifecycle, the dashboard and tests. SMS was removed.
+
+
+## Dialer: storage, backups, opt-outs
+
+- **Storage:** with `DATABASE_URL` set (always, on Railway) the dialer keeps leads, calls, settings and AI scripts in Postgres (`dialer_*` tables, migration `002_dialer.sql`). Changes are written about a second after they happen, only for the rows that changed. The first start copies the old `dialer-data.json` in once and leaves the file as a backup. `DIALER_STORAGE=file` keeps the old single-file store.
+- **Nightly backup:** about 2am Central the dialer writes `dialer-backup-YYYY-MM-DD.json.gz` (last 14 kept) to `DIALER_BACKUP_DIR` (default: a `backups` folder next to the data file, so put it on a Volume). Settings has a download button for an on-demand copy.
+- **Follow-up email:** opens in Gmail as `jason@realhelpstl.com` (Settings > Send follow-ups from). The body always ends with your mailing address and a "reply unsubscribe" line (plus an optional link). It will not open until the mailing address is set.
+- **Do Not Call:** marking a lead Do Not Call also adds their email to AgentLab's suppression table, the local `suppression.jsonl`, and the Suppression tab of the sheet named by `SUPPRESSION_SHEET_ID` (the same list the real-help-agent leads preflight reads).
+- **Lead cleanup:** imports and a one-time pass over stored leads use one spelling per city (`St. Louis`), one per owner category, and fill blank counties where the lead's own city/ZIP data or the built-in Missouri tables say so. `POST /api/dialer/clean` re-runs it.

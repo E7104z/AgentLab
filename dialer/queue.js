@@ -3,6 +3,7 @@
 
 const store = require('./store');
 const { normalizeRecord, firstNameOf, looksGarbled } = require('./parse');
+const clean = require('./clean');
 
 // ---- Outcomes ----------------------------------------------------------------
 // kind: retry  -> comes back after retryDays until maxAttempts, then 'exhausted'
@@ -75,9 +76,10 @@ function matchesFilters(lead, f) {
   if (!f) return true;
   if (f.source && !(lead.sources || []).includes(f.source)) return false;
   if (f.state && lead.state !== f.state) return false;
-  if (f.city && String(lead.city).toLowerCase() !== String(f.city).toLowerCase()) return false;
-  if (f.county && String(lead.county).toLowerCase() !== String(f.county).toLowerCase()) return false;
-  if (f.ethnicity && lead.ownerEthnicity !== f.ethnicity) return false;
+  // Compared by canonical spelling so "Saint Louis" and "ST. LOUIS" are one city.
+  if (f.city && clean.normalizeCity(lead.city).toLowerCase() !== clean.normalizeCity(f.city).toLowerCase()) return false;
+  if (f.county && clean.normalizeCounty(lead.county).toLowerCase() !== clean.normalizeCounty(f.county).toLowerCase()) return false;
+  if (f.ethnicity && clean.normalizeOwnerEthnicity(lead.ownerEthnicity) !== clean.normalizeOwnerEthnicity(f.ethnicity)) return false;
   if (f.keyword) {
     const k = String(f.keyword).toLowerCase();
     const hay = [lead.businessName, lead.industry, lead.codes, lead.certification, lead.city].join(' ').toLowerCase();
@@ -186,6 +188,7 @@ function logOutcome(leadId, { outcome, note, callbackAt, meetingAt, amount, dura
     callbackAt: lead.callbackAt || null, meetingAt: lead.meetingAt || null
   };
   store.addCall(call);
+  store.touch(lead);
   store.save();
   return { lead: view(lead), call };
 }
@@ -204,6 +207,7 @@ function skip(leadId, hours = 4) {
   const lead = store.getLead(leadId);
   if (!lead) throw new Error('Lead not found');
   lead.snoozeUntil = new Date(Date.now() + hours * 3600000).toISOString();
+  store.touch(lead);
   store.save();
   return { ok: true };
 }
@@ -214,6 +218,8 @@ function updateLead(leadId, patch) {
   const editable = ['businessName', 'contactName', 'email', 'website', 'phoneAlt', 'address', 'city', 'state', 'zip', 'industry'];
   for (const k of editable) if (patch[k] !== undefined) lead[k] = String(patch[k]).trim();
   if (patch.contactName !== undefined) lead.firstName = firstNameOf(lead.contactName);
+  if (patch.city !== undefined) lead.city = clean.normalizeCity(lead.city);
+  store.touch(lead);
   store.save();
   return view(lead);
 }
@@ -247,6 +253,7 @@ function importRecords(records, mapping, { source, defaultState }) {
         else if (v && !existing[k]) existing[k] = v;
       }
       existing.sources = [...new Set([...(existing.sources || []), source])];
+      store.touch(existing);
       if (repeatInFile) dupInFile++; else merged++;
       continue;
     }
@@ -256,7 +263,10 @@ function importRecords(records, mapping, { source, defaultState }) {
     });
     added++;
   }
-  const entry = { at: now, source, records: records.length, added, alreadyInDialer: merged, duplicatesInFile: dupInFile, skippedNoPhone: noPhone, repaired };
+  // Fill blank counties (from the leads' own city/ZIP data) and clear any flag text the file carried in.
+  const cleaned = clean.cleanAll(store.allLeads());
+  for (const l of cleaned.changed) store.touch(l);
+  const entry = { at: now, source, records: records.length, added, alreadyInDialer: merged, duplicatesInFile: dupInFile, skippedNoPhone: noPhone, repaired, countiesFilled: cleaned.stats.countiesFilled };
   store.load().imports.push(entry);
   store.save();
   return entry;
@@ -350,7 +360,7 @@ function filterOptions() {
   const tally = key => {
     const m = {};
     for (const l of leads) {
-      const vals = key === 'sources' ? (l.sources || []) : [l[key]];
+      const vals = key === 'sources' ? (l.sources || []) : [key === 'city' ? clean.normalizeCity(l.city) : key === 'county' ? clean.normalizeCounty(l.county) : key === 'ownerEthnicity' ? clean.normalizeOwnerEthnicity(l.ownerEthnicity) : l[key]];
       for (const v of vals) if (v) m[v] = (m[v] || 0) + 1;
     }
     return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([value, count]) => ({ value, count }));

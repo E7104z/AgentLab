@@ -11,6 +11,7 @@ const { createSheets } = require('./src/integrations/sheets');
 const { createPortal } = require('./src/integrations/portal');
 const { createAgent } = require('./src/app');
 const { createServer } = require('./src/web/server');
+const dialerStore = require('./dialer/store');
 
 async function main() {
   const config = loadConfig();
@@ -22,6 +23,11 @@ async function main() {
   const applied = await db.migrate();
   if (applied.length) console.log('Applied migrations:', applied.join(', '));
   await db.setState('health:startedAt', { at: new Date().toISOString() });
+
+  // Cold Call Dialer data lives in Postgres (migrations/002_dialer.sql); the first start copies
+  // the old dialer-data.json in. Set DIALER_STORAGE=file to keep the single-file store.
+  const dialer = await dialerStore.init({ db });
+  console.log(`Cold Call Dialer storage: ${dialer.backend}, ${dialer.leads} leads` + (dialer.imported ? `, imported ${dialer.imported.leads} leads from the old data file` : ''));
 
   const clients = loadClients();
   const mailboxes = createMailboxes(config, clients);
@@ -67,6 +73,7 @@ async function main() {
   }, config.tickIntervalMs);
 
   const shutdown = async () => {
+    await dialerStore.flush().catch((e) => console.error('dialer final save failed:', e.message));
     await db.close().catch(() => {});
     process.exit(0);
   };

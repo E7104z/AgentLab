@@ -3,10 +3,16 @@
 
 const express = require('express');
 const crypto = require('crypto');
+const zlib = require('zlib');
+const { promisify } = require('util');
 const store = require('./store');
 const queue = require('./queue');
 const aiScript = require('./ai-script');
 const crmSync = require('./crm-sync');
+const optout = require('./optout');
+const followup = require('./followup');
+const backup = require('./backup');
+const { templateVars, fillTemplate, voicemail } = require('./script-vars');
 const { FIELDS, autoMap, parseFile, normalizeRecord, fillFromExtra } = require('./parse');
 
 const PENDING_TTL_MS = 30 * 60 * 1000;
@@ -17,20 +23,8 @@ function cleanupPending() {
   for (const [id, p] of pendingImports) if (now - p.createdAt > PENDING_TTL_MS) pendingImports.delete(id);
 }
 
-function fill(template, lead, s) {
-  const vars = {
-    firstName: lead.firstName || 'there',
-    businessName: lead.businessName || 'your business',
-    contactName: lead.contactName || '',
-    city: lead.city || '',
-    source: (lead.sources || [])[0] || 'certified vendor',
-    website: s.website || '',
-    bookingLink: s.bookingLink || '',
-    bookingLine: s.bookingLink ? '\n\nIf it is easier, grab a 15-minute time here: ' + s.bookingLink : '',
-    senderName: s.senderName || '',
-    senderCompany: s.senderCompany || ''
-  };
-  return String(template || '').replace(/\{\{(\w+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));
+function fill(template, lead, s, ai) {
+  return fillTemplate(template, templateVars(lead || {}, s, { ai }));
 }
 
 // Fix leads imported before the column mapping learned First/Last Name and
@@ -39,7 +33,7 @@ function repairLeads() {
   let fixed = 0;
   for (const lead of store.allLeads()) {
     if ((lead.businessName && lead.contactName) || !lead.extra) continue;
-    if (fillFromExtra(lead)) { fixed++; aiScript.invalidate(lead.id); }
+    if (fillFromExtra(lead)) { fixed++; aiScript.invalidate(lead.id); store.touch(lead); }
   }
   if (fixed) store.save();
   return fixed;
@@ -90,6 +84,11 @@ module.exports = function mountDialer(app, guards = [], deps = {}) {
   r.post('/lead/:id/outcome', express.json(), send(async req => {
     const body = req.body || {};
     const res = queue.logOutcome(req.params.id, body);
+    if (body.outcome === 'dnc') {
+      // Do Not Call also takes their email off every list we mail from.
+      res.optOut = await optout.recordOptOut(deps.agent, store.getLead(req.params.id));
+      if (res.optOut.errors.length) console.error('[dialer] opt-out sync problems:', res.optOut.errors.join('; '));
+    }
     try {
       const lead = store.getLead(req.params.id);
       res.crm = await crmSync.syncOutcome(deps.agent, lead, body.outcome, { meetingAt: body.meetingAt });
@@ -116,12 +115,13 @@ module.exports = function mountDialer(app, guards = [], deps = {}) {
     const lead = store.getLead(req.params.id);
     if (!lead) throw Object.assign(new Error('Lead not found'), { status: 404 });
     if (!lead.email) throw new Error('This lead has no email address.');
+    if (lead.status === 'dnc') throw new Error('This lead is marked Do Not Call, so no email.');
+    const optedOut = await optout.isOptedOut(deps.agent, lead.email);
+    if (optedOut.out) throw new Error('This address is on the opt-out list (' + optedOut.why + '). Not emailing.');
     const s = store.settings();
-    const subject = fill(s.emailSubject, lead, s);
-    const body = fill(s.emailTemplate, lead, s);
+    const { subject, body } = followup.build(lead, s);      // adds the mailing address + unsubscribe line
     const mailto = 'mailto:' + encodeURIComponent(lead.email) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
-    const out = { to: lead.email, subject, body, mailto };
-    return out;
+    return { to: lead.email, from: s.gmailAccount, subject, body, mailto };
   }));
 
   // Personalized AI script. Returns the cached one instantly, else generates it
@@ -129,9 +129,10 @@ module.exports = function mountDialer(app, guards = [], deps = {}) {
   r.post('/lead/:id/ai-script', express.json(), send(req => aiScript.getOrCreate(req.params.id, { force: !!(req.body || {}).force })));
 
   r.post('/render', express.json(), send(req => {
-    const lead = store.getLead((req.body || {}).leadId);
+    const lead = store.getLead((req.body || {}).leadId) || {};
     const s = store.settings();
-    return { script: fill(s.script, lead || {}, s) };
+    const ai = lead.id ? aiScript.getCached(lead.id) : null;
+    return { script: fill(s.script, lead, s, ai), voicemail: voicemail(lead, s, ai) };
   }));
 
   r.get('/search', send(req => ({ results: queue.search(req.query.q) })));
@@ -141,7 +142,19 @@ module.exports = function mountDialer(app, guards = [], deps = {}) {
   r.get('/filters', send(() => queue.filterOptions()));
   r.get('/imports', send(() => ({ imports: store.load().imports.slice().reverse() })));
 
-  r.get('/settings', send(() => ({ settings: store.settings(), dataFile: store.DATA_FILE, aiPdfFallback: Boolean(process.env.ANTHROPIC_API_KEY), aiScripts: aiScript.enabled() })));
+  r.get('/settings', send(() => ({ settings: store.settings(), storage: store.status(), lastBackup: backup.latest(), optOutSheet: Boolean(process.env.SUPPRESSION_SHEET_ID), aiPdfFallback: Boolean(process.env.ANTHROPIC_API_KEY), aiScripts: aiScript.enabled() })));
+  // Re-run the lead cleanup (old flags, city/owner spelling, blank counties) after imports or edits.
+  r.post('/clean', send(() => store.runCleanup()));
+  r.get('/storage', send(() => ({ storage: store.status(), lastBackup: backup.latest() })));
+  r.post('/backup', send(async () => ({ backup: await backup.writeBackup() })));
+  r.get('/export/backup.json.gz', async (req, res) => {
+    try {
+      const buf = await promisify(zlib.gzip)(Buffer.from(JSON.stringify(store.snapshot())));
+      res.set('Content-Type', 'application/gzip');
+      res.set('Content-Disposition', 'attachment; filename="dialer-backup-' + new Date().toISOString().slice(0, 10) + '.json.gz"');
+      res.send(buf);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
   r.post('/settings', express.json(), send(req => ({ settings: store.updateSettings(req.body || {}) })));
 
   // ---- Import: step 1, upload raw bytes and preview -------------------------
@@ -199,7 +212,10 @@ module.exports = function mountDialer(app, guards = [], deps = {}) {
   try { const n = repairLeads(); if (n) console.log('[dialer] filled missing names on ' + n + ' leads'); } catch (e) { console.error('[dialer] repair failed:', e.message); }
   app.use('/api/dialer', ...guards, r);
   store.load();
-  console.log('Cold Call Dialer mounted at /dialer.html (data: ' + store.DATA_FILE + ', leads: ' + store.allLeads().length + ')');
+  backup.startNightly();
+  setTimeout(() => optout.backfill(deps.agent).then(r => { if (r && r.dnc) console.log('[dialer] opt-out backfill: ' + r.done + '/' + r.dnc + ' Do Not Call emails listed'); }).catch(e => console.error('[dialer] opt-out backfill failed:', e.message)), 5000).unref();
+  const st = store.status();
+  console.log('Cold Call Dialer mounted at /dialer.html (storage: ' + st.backend + (st.dataFile ? ' ' + st.dataFile : '') + ', leads: ' + store.allLeads().length + ')');
 };
 
 function summarize(parsed, mapping, defaultState) {

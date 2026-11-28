@@ -144,8 +144,18 @@
       const r = await api('/render', { method: 'POST', body: JSON.stringify({ leadId: lead && lead.id }) });
       $('script').innerHTML = esc(r.script).split('\n').map(line =>
         /^[A-Z]{3,}\b/.test(line.trim()) && !/[.?]/.test(line) ? '<span class="h">' + line + '</span>' : line).join('\n');
-    } catch (e) { $('script').textContent = ''; }
+      renderVoicemail(r.voicemail);
+    } catch (e) { $('script').textContent = ''; $('vmBox').innerHTML = ''; }
     loadAiScript(false);
+  }
+
+  // ---------- Voicemail (about 20 seconds: who you are, one reason, your number twice) ----------
+  function renderVoicemail(vm) {
+    const box = $('vmBox');
+    if (!vm) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="bar"><span class="lbl" style="margin:0">VOICEMAIL &middot; about ' + Math.max(10, Math.round(vm.words / 2.6)) + ' seconds</span></div>' +
+      '<div class="say">' + esc(vm.text) + '</div>' +
+      (vm.numberSet ? '' : '<div class="hook" style="margin-top:8px;color:var(--red)">Add your Google Voice number in Settings so it can be read in the message.</div>');
   }
 
   // ---------- Personalized AI script ----------
@@ -164,7 +174,6 @@
       (ai.offer ? '<div class="hook"><b>Lead with: ' + esc(OFFER_NAME[ai.offer]) + '</b>' + (ai.offerReason ? ' <span class="src">(' + esc(ai.offerReason) + ')</span>' : '') + '</div>' : '') +
       hook + row('OPENER', ai.opener) + row('ASK', ai.q1) + row('THEN', ai.q2) + row('BRIDGE', ai.bridge) +
       (objs ? '<span class="lbl">IF THEY SAY</span>' + objs : '') +
-      (ai.voicemail ? '<details><summary>VOICEMAIL</summary><div class="say">' + esc(ai.voicemail) + '</div></details>' : '') +
       (ai.sourceUrl ? '<div class="dim" style="font-size:11.5px;margin-top:8px">Source: <a href="' + esc(ai.sourceUrl) + '" target="_blank" rel="noopener">' + esc(ai.sourceUrl) + '</a></div>' : '');
     box.classList.remove('hidden');
     $('aiRegen').addEventListener('click', () => loadAiScript(true));
@@ -256,20 +265,18 @@
   async function call() {
     if (!lead || !lead.phoneDigits) return;
     if (lead.status === 'dnc') return toast('This number is on Do Not Call.', true);
-    const method = settings.callMethod === 'auto' ? (isMobile ? 'tel' : 'textnow-web') : settings.callMethod;
+    const method = settings.callMethod === 'auto' ? (isMobile ? 'tel' : 'voice-web') : settings.callMethod;
     if (!callStart) startTimer();
     if (method === 'tel') {
       window.location.href = 'tel:+1' + lead.phoneDigits;
       return;
     }
     const ok = await copy(lead.phoneDigits);
-    // Reuse one TextNow tab: open it the first time, just focus it after that.
-    let w = window.open('', 'textnow');
-    try {
-      if (w && (w.location.href === 'about:blank' || w.location.href === '')) w.location.href = settings.textnowUrl || 'https://www.textnow.com/messaging';
-    } catch (e) { /* cross-origin = TextNow already loaded in that tab */ }
+    // Google Voice opens a new-call screen for this number. One tab is reused for every call.
+    const base = (settings.voiceUrl || 'https://voice.google.com/u/0/calls').replace(/[?#].*$/, '');
+    const w = window.open(base + '?a=nc,%2B1' + lead.phoneDigits, 'googlevoice');
     if (w) w.focus();
-    toast(ok ? lead.phone + ' copied — paste it into TextNow' : 'Copy failed — dial ' + lead.phone);
+    toast(ok ? lead.phone + ' copied. If Google Voice did not start the call, paste it there.' : 'Dial ' + lead.phone + ' in Google Voice');
   }
   $('callBtn').addEventListener('click', call);
 
@@ -356,6 +363,8 @@
     try {
       const saved = await api('/lead/' + lead.id + '/outcome', { method: 'POST', body: JSON.stringify({ outcome: key, note: $('notes').value, durationSec, ...extra }) });
       const crm = saved.crm || {};
+      if (saved.optOut && saved.optOut.email) toast('Do Not Call saved. ' + saved.optOut.email + ' is now on the email opt-out list' + (saved.optOut.errors.length ? ' (some lists failed: ' + saved.optOut.errors.join('; ') + ')' : ''), saved.optOut.errors.length > 0);
+      else
       if (crm.ok) toast(OUTCOMES[key].label + ' saved and added to AgentLab CRM');
       else if (crm.error) toast(OUTCOMES[key].label + ' saved, but the CRM sync failed: ' + crm.error, true);
       else toast(OUTCOMES[key].label + ' saved');
@@ -567,7 +576,7 @@
   }
 
   // ---------- Settings ----------
-  const SETTING_IDS = ['dailyGoal', 'maxAttempts', 'retryDays', 'gatekeeperRetryDays', 'enforceCallWindow', 'crmSync', 'aiScripts', 'aiSearchFallback', 'callWindowStart', 'callWindowEnd', 'callMethod', 'textnowUrl', 'bookingLink', 'gmailAccount', 'senderName', 'senderCompany', 'website', 'emailSubject', 'emailTemplate', 'script'];
+  const SETTING_IDS = ['dailyGoal', 'maxAttempts', 'retryDays', 'gatekeeperRetryDays', 'enforceCallWindow', 'crmSync', 'aiScripts', 'aiSearchFallback', 'callWindowStart', 'callWindowEnd', 'callMethod', 'voiceUrl', 'callbackNumber', 'bookingLink', 'gmailAccount', 'postalAddress', 'unsubscribeUrl', 'voicemailScript', 'senderName', 'senderCompany', 'website', 'emailSubject', 'emailTemplate', 'script'];
   const sid = k => 'set' + k[0].toUpperCase() + k.slice(1);
   let dataFileInfo = '';
   function fillSettings() {
@@ -593,7 +602,7 @@
       OUTCOMES = await api('/outcomes');
       const s = await api('/settings');
       settings = s.settings;
-      dataFileInfo = 'Data file: ' + s.dataFile;
+      dataFileInfo = 'Storage: ' + (s.storage.backend === 'postgres' ? 'Postgres database' : 'file ' + s.storage.dataFile) + (s.storage.lastError ? ' (last save error: ' + s.storage.lastError + ')' : '') + (s.lastBackup ? ' | last nightly backup: ' + s.lastBackup.file : ' | no nightly backup yet') + (s.optOutSheet ? '' : ' | opt-out sheet not linked (SUPPRESSION_SHEET_ID)');
       buildOutcomeButtons();
       await loadFilterOptions();
       loadStats(true);

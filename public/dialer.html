@@ -246,6 +246,7 @@
         <div class="panel-label"><span>Script</span><button class="qbtn" id="editScript">Edit</button></div>
         <div id="aiBox" class="ai hidden"></div>
         <div class="script" id="script"></div>
+        <div class="ai" id="vmBox" style="margin-top:12px"></div>
       </div>
     </div>
   </section>
@@ -328,11 +329,12 @@
         </div>
         <label>Call button</label>
         <select id="setCallMethod">
-          <option value="auto">Auto: phone opens dialer, computer copies number + opens TextNow</option>
-          <option value="textnow-web">Always copy number + open TextNow web</option>
+          <option value="auto">Auto: phone opens its dialer, computer opens Google Voice</option>
+          <option value="voice-web">Always open Google Voice on the web (and copy the number)</option>
           <option value="tel">Always use phone link (tel:)</option>
         </select>
-        <label>TextNow web address</label><input id="setTextnowUrl" />
+        <label>Google Voice web address (use /u/1/ if your Workspace account is the second one signed in)</label><input id="setVoiceUrl" />
+        <label>Your Google Voice number (read twice in the voicemail)</label><input id="setCallbackNumber" placeholder="(314) 555-0100" />
       </div>
       <div class="panel">
         <div class="panel-label"><span>Follow-up email</span></div>
@@ -342,14 +344,20 @@
           <div><label>Website</label><input id="setWebsite" /></div>
           <div><label>Booking link (Cal.com)</label><input id="setBookingLink" placeholder="https://cal.com/..." /></div>
         </div>
-        <label>Google account for Gmail &amp; Calendar links</label><input id="setGmailAccount" />
+        <label>Send follow-ups and open calendar links from this Google account</label><input id="setGmailAccount" placeholder="jason@realhelpstl.com" />
+        <label>Business mailing address (required by CAN-SPAM; printed at the bottom of every follow-up)</label><input id="setPostalAddress" placeholder="123 Main St, St. Louis, MO 63101" />
+        <label>Unsubscribe link (optional; every email also says "reply unsubscribe")</label><input id="setUnsubscribeUrl" placeholder="https://..." />
         <label>Subject</label><input id="setEmailSubject" />
         <label>Body &mdash; {{firstName}} {{businessName}} {{website}} {{bookingLine}} {{senderName}} {{senderCompany}}</label>
         <textarea id="setEmailTemplate" rows="9"></textarea>
       </div>
     </div>
     <div class="panel" style="margin-top:14px">
-      <div class="panel-label"><span>Call script &mdash; {{firstName}} {{businessName}} {{city}} {{website}} work here too. Lines in CAPS become headings.</span></div>
+      <div class="panel-label"><span>Voicemail (about 20 seconds) &mdash; {{greeting}} {{vmReason}} {{businessName}} {{callbackNumber}} {{senderName}} {{senderCompany}}</span></div>
+      <textarea id="setVoicemailScript" rows="4"></textarea>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-label"><span>Call script &mdash; {{ownerAsk}} {{firstName}} {{businessName}} {{city}} {{website}} {{dayOne}} {{dayTwo}} work here too. Lines in CAPS become headings.</span></div>
       <textarea id="setScript" rows="18"></textarea>
     </div>
     <div class="row" style="margin-top:14px; flex-wrap: wrap">

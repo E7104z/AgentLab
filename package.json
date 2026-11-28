@@ -26,6 +26,7 @@
   },
   "type": "commonjs",
   "devDependencies": {
+    "@electric-sql/pglite": "^0.6.1",
     "vitest": "^5.1.1"
   },
   "engines": {

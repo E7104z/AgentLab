@@ -114,6 +114,7 @@ async function syncOutcome(agent, lead, outcome, { meetingAt } = {}) {
   try { await db.audit('dialer', 'dialer.' + outcome, { leadId: lead.id, contactId: contact.id, dealId }, clientId); } catch {}
   lead.crmContactId = contact.id;
   if (dealId) lead.crmDealId = dealId;
+  store.touch(lead);
   store.save();
   return { ok: true, contactId: contact.id, dealId, client: clientId };
 }
