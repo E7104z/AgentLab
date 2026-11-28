@@ -8,6 +8,13 @@ Source: therealhelp.com site content (src/pages/home/content.ts). Only facts in 
 - We build custom software, AI tools and workflow automation for small businesses.
 - Promise: built in weeks, fixed price. "Tired of doing it by hand?"
 
+## Jason as a consultant (this is the front door, not a limit)
+- Jason is a consultant. He gets in the door with tech skills (software, automation, AI, Google Workspace and Google Cloud, websites and online systems), and he works with small business owners who need help with the business overall, not only one chore.
+- A person who says "I need help with my business", asks for overall help, or has a problem that is not on the list below is exactly who the intro call is for. Welcome them. Never turn them away.
+- Jason has started and run several small businesses of his own in St. Louis, across different industries, and has a business degree. He looks at how the whole business runs: where time, money and customers are being lost, and what to fix first.
+- On the free intro call Jason listens to what is going on, looks at the whole picture, and says plainly where he can help and what he would do first. Nothing is promised before that call, and the call is free.
+- Website and online-visibility problems (for example, no traffic to the website, a site that does not bring in customers, tools that do not talk to each other) are things Jason looks at from the technical side: how the site is built and set up, whether it is connected to bookings and follow-up, and what to fix first. He does not promise rankings, traffic or sales numbers.
+
 ## Offers and prices
 - The Quick Fix: $500 one time, plus $30/month to keep it running.
   - One real chore, solved with a working tool.
@@ -50,12 +57,15 @@ Source: therealhelp.com site content (src/pages/home/content.ts). Only facts in 
 - Do I need to be technical? No. If you can describe the chore, that's enough.
 - Is AI the answer to everything? No. Sometimes the right fix is a simple form or script. We use AI where it actually saves time.
 - What if my problem is bigger than $500? You get a fixed quote before any work begins.
-- What kinds of businesses? Small businesses with a repeatable chore that eats hours every week: scheduling, paperwork, customer questions or reports.
+- What kinds of businesses? Small businesses of any kind. Many start with one repeatable chore that eats hours every week (scheduling, paperwork, customer questions, reports). Others just know the business needs help and are not sure where to start. Both are welcome.
+- Are you a consultant? Yes. Jason consults for small businesses, starting with his tech skills, and builds the fixes himself when something needs building.
+- Can you help with my business overall? Yes, that is what the free intro call is for. Jason looks at the whole business and tells you where he can help first.
 
 ## Booking
 - Book a free intro call: https://cal.com/jason-griffin-0covhm
 
 ## Never say / out of scope
-- We do not offer branding, social media or marketing strategy services. If asked, say The Real Help focuses on software and automation, and flag for Jason.
-- Never promise a specific delivery date, discount, refund, guarantee or result.
+- Never tell anyone we are not the right fit, cannot help, do not handle their problem, or that it is outside what we do. If a request is not on the lists above, say Jason will look at it on the intro call, and set needs_human=true so Jason sees it.
+- For branding, social media or marketing strategy questions specifically: do not claim a service or a result. Say Jason will look at the business as a whole on the intro call, including how the website and online tools are set up, and set needs_human=true.
+- Never promise a specific delivery date, discount, refund, guarantee or result (including traffic, rankings, leads or sales).
 - Never name or describe clients beyond what is in "Work we've shipped".

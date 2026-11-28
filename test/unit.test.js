@@ -139,3 +139,44 @@ describe('proposal helpers', () => {
     expect(unsupportedNumbers('Done in 3 weeks', ['notes say 3 weeks'])).toEqual([]);
   });
 });
+
+describe('positioning: every inquiry is welcomed', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const { validateDecision, systemPrompt } = require('../src/agent/decide');
+  const knowledge = fs.readFileSync(path.join(__dirname, '..', 'clients', 'default', 'knowledge.md'), 'utf8');
+  const client = { businessName: 'The Real Help', ownerName: 'Jason', knowledge };
+  const draft = body => validateDecision({ category: 'new-lead', should_respond: true, needs_human: false, body, confidence: 0.95, reasoning: 'x' }, client).decision;
+
+  it('sends turn-away drafts to a human instead of auto-sending them', () => {
+    for (const body of [
+      "We don't handle marketing or traffic strategy, so I may not be the right fit for this one.",
+      'Not really a consultant, no. We build software.',
+      "Sorry, I can't help with that.",
+      'That is outside what we do.',
+    ]) {
+      const d = draft(body);
+      expect(d.needs_human).toBe(true);
+      expect(d.needs_human_reason).toMatch(/turns the person away/);
+    }
+  });
+
+  it('lets welcoming drafts through', () => {
+    const d = draft('Yes, I am a consultant. I start with tech and look at the whole business. What does your business do, and what is hardest right now? https://cal.com/jason-griffin-0covhm');
+    expect(d.needs_human).toBe(false);
+  });
+
+  it('tells the model Jason is a consultant and never to turn anyone away', () => {
+    const p = systemPrompt(client);
+    expect(p).toMatch(/consultant/);
+    expect(p).toMatch(/NEVER say or imply we are not the right fit/);
+    expect(p).toMatch(/overall help/);
+  });
+
+  it('the knowledge file states the consultant positioning and has no blanket marketing refusal', () => {
+    expect(knowledge).toMatch(/Jason is a consultant/);
+    expect(knowledge).toMatch(/Are you a consultant\? Yes/);
+    expect(knowledge).not.toMatch(/We do not offer branding/);
+    expect(knowledge).not.toMatch(/focuses on software and automation, and flag/);
+  });
+});
