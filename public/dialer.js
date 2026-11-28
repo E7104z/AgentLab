@@ -90,8 +90,8 @@
     closeExtra();
     $('emptyState').classList.add('hidden');
     $('dialView').classList.remove('hidden');
-    const reasonText = { new: 'Fresh lead', retry: 'Retry #' + ((l.attempts || 0) + 1), callback_due: 'Callback due ' + fmtDate(l.callbackAt), opened: 'Opened manually' }[reason] || '';
-    $('leadReason').innerHTML = reasonText ? '<span class="badge ' + (reason === 'callback_due' ? 'amber' : reason === 'retry' ? 'blue' : 'green') + '">' + esc(reasonText) + '</span>' : '';
+    const reasonText = { new: 'Fresh lead', retry: 'Retry #' + ((l.attempts || 0) + 1), callback_due: 'Callback due ' + fmtDate(l.callbackAt), opened: 'Opened manually', email_reply: 'Replied to our email: call now' }[reason] || '';
+    $('leadReason').innerHTML = reasonText ? '<span class="badge ' + (reason === 'callback_due' || reason === 'email_reply' ? 'amber' : reason === 'retry' ? 'blue' : 'green') + '">' + esc(reasonText) + '</span>' : '';
     $('lBiz').textContent = l.businessName || '(no business name)';
     $('lContact').innerHTML = l.contactName ? esc(l.contactName) + (l.firstName ? ' <span class="dim">&middot; ask for ' + esc(l.firstName) + '</span>' : '') : '<span class="dim">No contact name &mdash; ask for the owner</span>';
     const b = [];
@@ -99,12 +99,17 @@
     if (l.attempts) b.push('<span class="badge">' + l.attempts + ' call' + (l.attempts > 1 ? 's' : '') + '</span>');
     if (l.certification) b.push('<span class="badge">' + esc(l.certification.length > 40 ? l.certification.replace(/.*\((\w+)\).*/, '$1') : l.certification) + '</span>');
     for (const s of (l.sources || [])) b.push('<span class="badge">' + esc(s) + '</span>');
-    if (l.status === 'dnc') b.push('<span class="badge red">DO NOT CALL</span>');
+    if (l.status === 'dnc' || l.callBlocked) b.push('<span class="badge red">DO NOT CALL</span>');
+    if (l.emailOptOut) b.push('<span class="badge amber">NO EMAIL (asked off email)</span>');
+    if (l.emailState === 'bounced') b.push('<span class="badge amber">Email bounced</span>');
+    if (l.emailState === 'replied') b.push('<span class="badge green">Replied by email</span>');
+    if (l.emailSentCount) b.push('<span class="badge">' + l.emailSentCount + ' email' + (l.emailSentCount > 1 ? 's' : '') + ' sent</span>');
+    if (l.pendingTouch === 'missed_you') b.push('<span class="badge blue">Missed-you email queued</span>');
     $('lBadges').innerHTML = b.join('');
     $('lPhone').textContent = l.phone || '';
     $('callBtn').textContent = 'Call';
     $('callBtn').classList.remove('live');
-    $('callBtn').disabled = l.status === 'dnc';
+    $('callBtn').disabled = l.status === 'dnc' || !!l.callBlocked;
     $('lLocal').textContent = 'Their time ' + (l.localTime || '');
     const rows = [
       ['Alt phone', l.phoneAlt], ['Email', l.email], ['Website', l.website],
@@ -129,6 +134,7 @@
           (c.callbackAt && c.outcome !== 'note' ? ' <span class="dim" style="font-size:11.5px">&rarr; ' + esc(fmtDate(c.callbackAt)) + '</span>' : '') +
           (c.note ? '<div class="note">' + esc(c.note) + '</div>' : '') + '</div>').join('')
       : '<div class="dim" style="font-size:12.5px">No calls yet. First touch.</div>';
+    loadTimeline(l.id);
     if (queue) $('queueLine').textContent = queue.matching + ' leads match · ' + queue.fresh + ' never called · ' + queue.retryLater + ' waiting on retry · ' + queue.callbacks + ' with a callback set';
     loadScript();
     remember(l.id);
@@ -494,7 +500,32 @@
       tile('Today', s.today.dials + ' / ' + s.dailyGoal, fmtDur(s.today.talkSec) + ' talk time') +
       tile('Leads in system', s.leads.total, (s.leads.byStatus.new || 0) + ' never called');
     $('statDays').innerHTML = s.history.length ? s.history.map(d => '<tr><td class="mono">' + d.day + '</td><td>' + d.dials + '</td><td>' + d.conversations + '</td><td>' + d.meetings + '</td><td>' + d.wins + '</td><td class="mono">' + fmtDur(d.talkSec) + '</td></tr>').join('') : '<tr><td colspan="6" class="dim">No calls logged yet.</td></tr>';
+    loadFunnel();
     $('statPool').innerHTML = Object.entries(s.leads.byStatus).sort((a, b) => b[1] - a[1]).map(([k, v]) => '<span class="badge">' + esc(outcomeLabel(k)) + ': ' + v + '</span>').join('');
+  }
+
+  // One timeline per lead: calls, notes, emails, replies, bookings.
+  async function loadTimeline(id) {
+    try {
+      const r = await api('/lead/' + id + '/timeline');
+      if (!r.events.length || !$('lHistory') || !r.events.some(e => e.channel !== 'call')) return;   // calls-only view already shown
+      $('lHistory').innerHTML = '<div class="panel-label" style="margin-bottom:6px"><span>Timeline</span></div>' + r.events.slice().reverse().map(e =>
+        '<div class="h-item"><span class="when">' + esc(fmtDate(e.at)) + '</span><span class="badge" style="margin-right:6px">' + esc(e.channel) + '</span><span class="what">' +
+        esc(e.channel === 'call' ? outcomeLabel(e.kind) : (e.summary || e.kind)) + '</span>' +
+        (e.channel === 'call' && e.summary ? '<div class="note">' + esc(e.summary) + '</div>' : '') + '</div>').join('');
+    } catch (e) { /* the calls list is already showing */ }
+  }
+
+  async function loadFunnel() {
+    try {
+      const [f, lim] = await Promise.all([api('/funnel'), api('/limits')]);
+      const stages = ['new', 'contacted', 'engaged', 'interested', 'booked', 'won', 'lost', 'suppressed'];
+      $('funnelBox').innerHTML =
+        '<div style="display:flex;flex-wrap:wrap;gap:6px">' + stages.map(k => '<span class="badge">' + k + ': ' + (f.stages[k] || 0) + '</span>').join('') + '</div>' +
+        '<div class="dim" style="font-size:12.5px;margin-top:8px">Calls: ' + f.channels.call.attempts + ' dials, ' + f.channels.call.conversations + ' conversations. Email: ' +
+        f.channels.email.sent + ' sent, ' + f.channels.email.replies + ' replies, ' + f.channels.email.bounces + ' bounces, ' + f.channels.email.complaints + ' complaints.</div>' +
+        '<div class="dim" style="font-size:12.5px;margin-top:6px">Today: ' + lim.calls.today + ' calls; ' + lim.email.sentToday + ' of ' + lim.email.recommendedCap + ' cold emails. ' + esc(lim.email.note) + '</div>';
+    } catch (e) { $('funnelBox').textContent = 'Funnel unavailable: ' + e.message; }
   }
 
   // ---------- Import ----------

@@ -191,8 +191,8 @@ describe('store: Postgres', () => {
     const r = await store.init({ db });
     expect(r.backend).toBe('postgres');
     expect(r.imported).toEqual({ leads: 1200, calls: 1 });
-    expect((await db.query('SELECT count(*)::int AS n FROM dialer_leads')).rows[0].n).toBe(1200);
-    expect((await db.query("SELECT count(DISTINCT data->>'city')::int AS n FROM dialer_leads")).rows[0].n).toBe(1);   // cleaned city persisted
+    expect((await db.query('SELECT count(*)::int AS n FROM prospects')).rows[0].n).toBe(1200);
+    expect((await db.query("SELECT count(DISTINCT data->>'city')::int AS n FROM prospects")).rows[0].n).toBe(1);   // cleaned city persisted
 
     // a call, an edit, a new lead, a setting and an AI script, then "crash" (no graceful shutdown beyond flush)
     const q = require('../dialer/queue');
@@ -214,7 +214,7 @@ describe('store: Postgres', () => {
     expect(store2.aiGet('l5').opener).toBe('hi');
     store2.aiDel('l5');
     await store2.flush();
-    expect((await db.query('SELECT count(*)::int AS n FROM dialer_ai_scripts')).rows[0].n).toBe(0);
+    expect((await db.query('SELECT count(*)::int AS n FROM prospects WHERE research IS NOT NULL')).rows[0].n).toBe(0);
   }, 60000);
 
   it('keeps pending changes and retries when the database write fails', async () => {
@@ -230,7 +230,7 @@ describe('store: Postgres', () => {
     db.query = real;
     await store.flush();
     expect(store.status().lastError).toBeNull();
-    expect((await db.query("SELECT 1 FROM dialer_leads WHERE id = 'x1'")).rows).toHaveLength(1);
+    expect((await db.query("SELECT 1 FROM prospects WHERE id = 'x1'")).rows).toHaveLength(1);
   }, 30000);
 });
 
@@ -280,4 +280,132 @@ describe('queue: one St. Louis', () => {
     expect(q.nextLead({ city: 'ST. LOUIS' }).queue.matching).toBe(2);
     expect(store.allLeads().every(l => l.city !== 'Saint Louis')).toBe(true);
   });
+});
+
+// ---- shared prospects: one opt-out list, outcome-driven email, email signals, booking, timeline, limits ----
+describe('prospects: dialer and email share one table', () => {
+  async function setup(leads) {
+    const { PGlite } = await import('@electric-sql/pglite');
+    const db = new PGlite();
+    await db.exec(fs.readFileSync(path.join(__dirname, '..', 'migrations', '002_dialer.sql'), 'utf8'));
+    const { store } = await freshStore();
+    await store.init({ db });
+    for (const l of leads) store.addLead(l);
+    await store.flush();
+    const prospects = require('../dialer/prospects');
+    const q = require('../dialer/queue');
+    return { db, store, prospects, q };
+  }
+  const row = (db, id) => db.query('SELECT * FROM prospects WHERE id = $1', [id]).then(r => r.rows[0]);
+  const emailable = db => db.query('SELECT id FROM emailable_prospects ORDER BY id').then(r => r.rows.map(x => x.id));
+
+  it('lead rows land in real columns and only approved, clean ones are emailable', async () => {
+    const { db } = await setup([
+      lead({ id: 'a', email: 'a@x.com', businessName: 'A Co', city: 'St. Louis' }),
+      lead({ id: 'b', email: 'b@x.com', phoneDigits: '3145550102' }),
+      lead({ id: 'c', phoneDigits: '3145550103' }),
+    ]);
+    const a = await row(db, 'a');
+    expect(a).toMatchObject({ phone_digits: '3145550100', email: 'a@x.com', business_key: 'a|st louis', email_state: 'ready', stage: 'new' });
+    expect((await row(db, 'c')).email_state).toBe('none');
+    expect(await emailable(db)).toEqual([]);                                           // nothing approved yet
+    await db.query("UPDATE prospects SET email_approved_at = now() WHERE id IN ('a','b','c')");
+    expect(await emailable(db)).toEqual(['a', 'b']);                                   // no email, never emailable
+  });
+
+  it('Do Not Call blocks email too, and an unsubscribe flags the phone without blocking calls', async () => {
+    const { db, prospects, q, store } = await setup([
+      lead({ id: 'a', email: 'a@x.com' }), lead({ id: 'b', email: 'b@x.com', phoneDigits: '3145550102' }), lead({ id: 'c', email: 'c@x.com', phoneDigits: '3145550103' }),
+    ]);
+    await db.query("UPDATE prospects SET email_approved_at = now()");
+    q.logOutcome('a', { outcome: 'dnc' });
+    await new Promise(r => setTimeout(r, 50));
+    await prospects.applyOptOut({ email: 'b@x.com', reason: 'unsubscribe', source: 'agentlab' });
+    await prospects.applyOptOut({ email: 'c@x.com', reason: 'bounce', source: 'agentlab' });
+    const a = await row(db, 'a'), b = await row(db, 'b'), c = await row(db, 'c');
+    expect([a.email_state, a.call_blocked, a.stage]).toEqual(['suppressed', true, 'suppressed']);
+    expect([b.email_state, b.call_blocked]).toEqual(['suppressed', false]);            // still callable
+    expect(store.getLead('b').emailOptOut).toBe(true);
+    expect([c.email_state, c.call_blocked]).toEqual(['bounced', false]);               // phone kept
+    expect(await emailable(db)).toEqual([]);
+    const o = (await db.query('SELECT email, reason, block_email, block_phone FROM opt_outs ORDER BY email')).rows;
+    expect(o.find(x => x.email === 'a@x.com')).toMatchObject({ block_email: true, block_phone: true });
+  });
+
+  it('outcomes drive email: voicemail queues "missed you", callback pauses, interested and booked stop cold', async () => {
+    const { db, q, prospects } = await setup([lead({ id: 'a', email: 'a@x.com' }), lead({ id: 'b', email: 'b@x.com', phoneDigits: '3145550102' }), lead({ id: 'c', email: 'c@x.com', phoneDigits: '3145550103' })]);
+    await db.query("UPDATE prospects SET email_approved_at = now()");
+    q.logOutcome('a', { outcome: 'voicemail' });
+    const when = new Date(Date.now() + 3 * 86400000).toISOString();
+    q.logOutcome('b', { outcome: 'callback', callbackAt: when });
+    q.logOutcome('c', { outcome: 'interested' });
+    await new Promise(r => setTimeout(r, 100));
+    expect((await row(db, 'a')).pending_touch).toBe('missed_you');
+    expect((await db.query('SELECT id FROM pending_touches')).rows.map(r => r.id)).toEqual(['a']);
+    expect(new Date((await row(db, 'b')).email_hold_until).toISOString()).toBe(when);
+    expect((await row(db, 'c')).email_stop_reason).toBe('interested');
+    expect(await emailable(db)).toEqual(['a']);                                        // b paused, c stopped
+    // a booking stops everything and leaves the call queue
+    const r = await prospects.onBooking({ email: 'a@x.com', startTime: when });
+    expect(r).toMatchObject({ matched: true, by: 'email' });
+    expect((await row(db, 'a')).email_stop_reason).toBe('booked');
+    expect((await row(db, 'a')).pending_touch).toBeNull();
+    expect(await emailable(db)).toEqual([]);
+  });
+
+  it('a booking matches on phone or company when the email differs, and clears the callback', async () => {
+    const { prospects, store } = await setup([
+      lead({ id: 'a', email: '', phoneDigits: '3145550111', status: 'callback', callbackAt: '2026-12-01T15:00:00Z', businessName: 'Zaffron Bakery', city: 'St. Louis' }),
+      lead({ id: 'b', phoneDigits: '3145550112', businessName: 'Blue Door Cafe LLC', city: 'Clayton' }),
+    ]);
+    expect(await prospects.onBooking({ email: 'new@owner.com', phone: '(314) 555-0111' })).toMatchObject({ matched: true, by: 'phone' });
+    expect(store.getLead('a')).toMatchObject({ status: 'meeting_booked', callbackAt: null });
+    expect(await prospects.onBooking({ email: 'x@y.com', company: 'The Blue Door Cafe, Inc.' })).toMatchObject({ matched: true, by: 'company' });
+    expect(await prospects.onBooking({ email: 'nobody@y.com' })).toEqual({ matched: false });
+  });
+
+  it('a positive email reply floats the lead to the top of the call queue; a plain reply only stops cold email', async () => {
+    const { db, prospects, q, store } = await setup([lead({ id: 'a', email: 'a@x.com' }), lead({ id: 'b', email: 'b@x.com', phoneDigits: '3145550102' }), lead({ id: 'c', phoneDigits: '3145550103' })]);
+    await prospects.onReply({ email: 'b@x.com', positive: true, summary: 'Positive reply' });
+    expect((await row(db, 'b')).call_priority_at).not.toBeNull();
+    await prospects.onReply({ email: 'a@x.com', positive: false });
+    expect((await row(db, 'a'))).toMatchObject({ email_stop_reason: 'replied', email_state: 'replied', call_priority_at: null });
+    await prospects.pullEmailSide();                                                    // sets the watermark
+    await new Promise(r => setTimeout(r, 20));
+    await prospects.onReply({ email: 'b@x.com', positive: true });
+    await db.query("UPDATE prospects SET updated_at = now() + interval '1 second' WHERE id = 'b'");
+    await new Promise(r => setTimeout(r, 1100));
+    await prospects.pullEmailSide();
+    expect(store.getLead('b').priorityAt).toBeTruthy();
+    for (let i = 0; i < 5; i++) expect(q.nextLead({}).lead.id).toBe('b');              // beats random fresh leads
+    expect(q.nextLead({}).reason).toBe('email_reply');
+    q.logOutcome('b', { outcome: 'no_answer' });
+    expect(q.nextLead({}).reason).not.toBe('email_reply');                              // handled, no loop
+  }, 20000);
+
+  it('email-side columns are never overwritten by a dialer save', async () => {
+    const { db, store } = await setup([lead({ id: 'a', email: 'a@x.com' })]);
+    await db.query("UPDATE prospects SET email_state = 'sent', email_sent_count = 2, email_approved_at = now() WHERE id = 'a'");
+    store.getLead('a').businessName = 'Renamed'; store.touch('a'); await store.flush();
+    expect(await row(db, 'a')).toMatchObject({ email_state: 'sent', email_sent_count: 2, business_name: 'Renamed' });
+  });
+
+  it('timeline merges calls with email events; funnel and limits count both channels', async () => {
+    const { db, prospects, q } = await setup([lead({ id: 'a', email: 'a@x.com' })]);
+    q.logOutcome('a', { outcome: 'no_answer', note: 'rang out' });
+    await prospects.logEvent('a', { channel: 'email', kind: 'sent', summary: 'Cold email 1 sent', source: 'real-help-agent' });
+    await prospects.logEvent('a', { channel: 'email', kind: 'reply', summary: 'Replied', source: 'agentlab' });
+    const t = await prospects.timeline('a');
+    expect(t.map(e => e.channel).sort()).toEqual(['call', 'email', 'email']);
+    const f = await prospects.funnel();
+    expect(f.channels.email).toMatchObject({ sent: 1, replies: 1 });
+    expect(f.stages.contacted).toBe(1);
+    const lim = await prospects.limits();
+    expect(lim.email).toMatchObject({ baseCap: 10, sentToday: 1, recommendedCap: 10 });
+    // ramp: low bounces step up, high bounces cut back
+    for (let i = 0; i < 40; i++) await db.query("INSERT INTO prospect_events (id, prospect_id, channel, kind) VALUES ($1,'a','email','sent')", ['s' + i]);
+    expect((await prospects.limits()).email.recommendedCap).toBeGreaterThan(10);
+    for (let i = 0; i < 4; i++) await db.query("INSERT INTO prospect_events (id, prospect_id, channel, kind) VALUES ($1,'a','email','bounce')", ['b' + i]);
+    expect((await prospects.limits()).email.recommendedCap).toBeLessThan(10);
+  }, 20000);
 });

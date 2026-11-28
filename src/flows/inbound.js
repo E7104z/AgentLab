@@ -138,6 +138,7 @@ function createInbound({ db, store, outbox, mailboxes, clients, getClient, llm, 
 
     // Any reply stops automated follow-ups.
     await store.stopEnrollments(client.id, contact.id, 'replied', ['no_booking', 'post_call']);
+    await store.hook('onReply', { email: msg.fromEmail, positive: false, summary: 'Replied: ' + String(msg.subject || '').slice(0, 120) });
 
     const fresh = newestPart(msg.body);
     if (isOptOut(fresh)) {
@@ -235,6 +236,10 @@ function createInbound({ db, store, outbox, mailboxes, clients, getClient, llm, 
       });
     }
 
+    // A real interested reply floats the business to the top of the call queue.
+    if (['new-lead', 'booking', 'active-conversation'].includes(decision.category)) {
+      await store.hook('onReply', { email: msg.fromEmail, positive: true, summary: 'Positive reply (' + decision.category + '): ' + String(msg.subject || '').slice(0, 100) });
+    }
     if (decision.category === 'new-lead' && contact.status === 'new') await store.setContactStatus(client.id, contact.id, 'replied');
 
     await recordInbound(mailbox.name, msg, {

@@ -50,6 +50,16 @@ async function main() {
     portal: createPortal(config.portal),
   });
 
+  // Connect AgentLab's email side to the shared prospects list (opt-outs, replies, bookings).
+  const prospects = require('./dialer/prospects');
+  agent.store.hooks.onSuppress = async ({ email, reason }) => {
+    const r = String(reason || '');
+    if (r === 'dialer-dnc') return;   // came from the dialer: already applied
+    await prospects.applyOptOut({ email, reason: /bounce/i.test(r) ? 'bounce' : /complain|spam/i.test(r) ? 'complaint' : 'unsubscribe', source: 'agentlab' });
+  };
+  agent.store.hooks.onReply = (x) => prospects.onReply(x);
+  agent.store.hooks.onBooking = (x) => prospects.onBooking(x);
+
   const app = createServer(agent);
   app.listen(config.port, () => {
     console.log(`AgentLab running on :${config.port}`);

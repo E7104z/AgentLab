@@ -10,6 +10,7 @@ const queue = require('./queue');
 const aiScript = require('./ai-script');
 const crmSync = require('./crm-sync');
 const optout = require('./optout');
+const prospects = require('./prospects');
 const followup = require('./followup');
 const backup = require('./backup');
 const { templateVars, fillTemplate, voicemail } = require('./script-vars');
@@ -79,13 +80,18 @@ module.exports = function mountDialer(app, guards = [], deps = {}) {
     return { lead };
   }));
 
+  // One timeline per lead (calls, notes, emails, replies, bookings), the funnel and the daily limits.
+  r.get('/lead/:id/timeline', send(async req => ({ events: await prospects.timeline(req.params.id) })));
+  r.get('/funnel', send(async () => prospects.funnel()));
+  r.get('/limits', send(async () => prospects.limits()));
+
   // Logs the outcome first (never blocked by the CRM), then pushes promising
   // leads into AgentLab's CRM and reports what happened.
   r.post('/lead/:id/outcome', express.json(), send(async req => {
     const body = req.body || {};
     const res = queue.logOutcome(req.params.id, body);
-    if (body.outcome === 'dnc') {
-      // Do Not Call also takes their email off every list we mail from.
+    if (body.outcome === 'dnc' || body.outcome === 'not_interested') {
+      // Do Not Call / Not Interested also take their email off every list we mail from.
       res.optOut = await optout.recordOptOut(deps.agent, store.getLead(req.params.id));
       if (res.optOut.errors.length) console.error('[dialer] opt-out sync problems:', res.optOut.errors.join('; '));
     }
@@ -115,7 +121,8 @@ module.exports = function mountDialer(app, guards = [], deps = {}) {
     const lead = store.getLead(req.params.id);
     if (!lead) throw Object.assign(new Error('Lead not found'), { status: 404 });
     if (!lead.email) throw new Error('This lead has no email address.');
-    if (lead.status === 'dnc') throw new Error('This lead is marked Do Not Call, so no email.');
+    if (lead.status === 'dnc' || lead.callBlocked) throw new Error('This lead is marked Do Not Call, so no email.');
+    if (lead.emailOptOut || ['suppressed', 'bounced'].includes(lead.emailState)) throw new Error('This address is opted out or bounced, so no email.');
     const optedOut = await optout.isOptedOut(deps.agent, lead.email);
     if (optedOut.out) throw new Error('This address is on the opt-out list (' + optedOut.why + '). Not emailing.');
     const s = store.settings();
@@ -213,6 +220,7 @@ module.exports = function mountDialer(app, guards = [], deps = {}) {
   app.use('/api/dialer', ...guards, r);
   store.load();
   backup.startNightly();
+  prospects.startSync();
   setTimeout(() => optout.backfill(deps.agent).then(r => { if (r && r.dnc) console.log('[dialer] opt-out backfill: ' + r.done + '/' + r.dnc + ' Do Not Call emails listed'); }).catch(e => console.error('[dialer] opt-out backfill failed:', e.message)), 5000).unref();
   const st = store.status();
   console.log('Cold Call Dialer mounted at /dialer.html (storage: ' + st.backend + (st.dataFile ? ' ' + st.dataFile : '') + ', leads: ' + store.allLeads().length + ')');

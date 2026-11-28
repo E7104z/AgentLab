@@ -75,6 +75,11 @@ function createBooking({ db, store, outbox, getClient }) {
     switch (trigger) {
       case 'BOOKING_CREATED':
       case 'BOOKING_RESCHEDULED': {
+        await store.hook('onBooking', {
+          email: attendee.email, name: attendee.name, startTime: p.startTime,
+          phone: attendee.phoneNumber || (p.responses && p.responses.phone && p.responses.phone.value) || null,
+          company: (p.responses && (p.responses.company || p.responses.Company || p.responses.business) && (p.responses.company || p.responses.Company || p.responses.business).value) || null,
+        });
         await store.stopEnrollments(client.id, contact.id, 'booked', ['no_booking']);
         await store.setContactStatus(client.id, contact.id, 'booked');
         if (!deal) {

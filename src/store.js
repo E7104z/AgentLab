@@ -3,6 +3,13 @@ const { refCode } = require('./lib/util');
 
 function createStore(db) {
   const store = {
+    // Optional callbacks other modules attach (the dialer's shared prospects list). A failing hook never breaks the main flow.
+    hooks: {},
+    async hook(name, arg) {
+      const fn = store.hooks[name];
+      if (!fn) return;
+      try { await fn(arg); } catch (e) { console.error('[hook ' + name + '] ' + e.message); }
+    },
     async upsertContact(clientId, fields) {
       const email = fields.email ? String(fields.email).trim().toLowerCase() : null;
       if (email) {
@@ -97,6 +104,7 @@ function createStore(db) {
         [clientId, email, reason]
       );
       await db.query('UPDATE contacts SET do_not_email=TRUE, updated_at=now() WHERE client_id=$1 AND lower(email)=lower($2)', [clientId, email]);
+      await store.hook('onSuppress', { email, reason });
     },
     async isSuppressed(clientId, email) {
       const r = await db.one('SELECT 1 AS x FROM suppressions WHERE client_id=$1 AND email=lower($2)', [clientId, email || '']);

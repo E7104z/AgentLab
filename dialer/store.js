@@ -209,7 +209,7 @@ async function init({ db } = {}) {
   const count = async t => Number((await pg.query('SELECT count(*)::int AS n FROM ' + t)).rows[0].n);
   const migrated = (await pg.query("SELECT 1 FROM dialer_kv WHERE key = 'migrated_from_file'")).rows.length > 0;
   let imported = null;
-  if (!migrated && (await count('dialer_leads')) === 0 && fs.existsSync(DATA_FILE)) {
+  if (!migrated && (await count('prospects')) === 0 && fs.existsSync(DATA_FILE)) {
     const fileData = readFileData();
     if (fileData && Object.keys(fileData.leads || {}).length) {
       normalize(fileData);
@@ -224,7 +224,7 @@ async function init({ db } = {}) {
   }
   if (!cache) {
     const data = EMPTY();
-    for (const r of (await pg.query('SELECT data FROM dialer_leads')).rows) data.leads[r.data.id] = r.data;
+    for (const r of (await pg.query("SELECT data FROM prospects WHERE data->>'id' IS NOT NULL")).rows) data.leads[r.data.id] = r.data;
     data.calls = (await pg.query('SELECT data FROM dialer_calls ORDER BY at, id')).rows.map(r => r.data);
     const kv = {};
     for (const r of (await pg.query('SELECT key, value FROM dialer_kv')).rows) kv[r.key] = r.value;
@@ -237,7 +237,7 @@ async function init({ db } = {}) {
     dirty.persistedCalls = cache.calls.length;
   }
   aiCache = {};
-  for (const r of (await pg.query('SELECT lead_id, data FROM dialer_ai_scripts')).rows) aiCache[r.lead_id] = r.data;
+  for (const r of (await pg.query('SELECT id, research FROM prospects WHERE research IS NOT NULL')).rows) aiCache[r.id] = r.research;
   cleanupOnce();
   // Persist the migration/cleanup results now rather than waiting for the timer; a failure retries on its own.
   try { await flush(); } catch (e) { console.error('[dialer] startup save failed, will retry:', e.message); scheduleFlush(); }
@@ -245,15 +245,59 @@ async function init({ db } = {}) {
 }
 
 const CHUNK = 500;
+const model = require('./prospect-model');
+const toTs = v => { if (!v) return null; const t = new Date(v); return isNaN(t) ? null : t.toISOString(); };
+
+// Map a dialer lead onto the prospects columns. Email-side columns (email_state, sent counts,
+// approval, priority, holds, stop reasons, pending touch) are NOT written here: other systems
+// own them and the dialer pulls them back (see prospects.pullEmailSide).
+function prospectRow(l) {
+  return {
+    id: l.id,
+    phone_digits: l.phoneDigits || null,
+    email: model.emailOf(l) || null,
+    business_key: model.businessKey(l) || null,
+    business_name: l.businessName || null,
+    city: l.city || null,
+    state: l.state || null,
+    stage: model.stageOf(l),
+    call_status: l.status || null,
+    call_attempts: l.attempts || 0,
+    last_call_at: toTs(l.lastCalledAt),
+    next_call_at: toTs(l.nextAttemptAt),
+    callback_at: toTs(l.callbackAt),
+    call_blocked: !!(l.callBlocked || l.status === 'dnc'),
+    crm_contact_id: l.crmContactId || null,
+    crm_deal_id: l.crmDealId || null,
+    email_state: model.initialEmailState(l),
+    data: l,
+  };
+}
+
 async function upsertLeads(ids) {
   for (let i = 0; i < ids.length; i += CHUNK) {
-    const rows = ids.slice(i, i + CHUNK).map(id => cache.leads[id]).filter(Boolean)
-      .map(l => ({ id: l.id, phone_digits: l.phoneDigits || null, status: l.status || null, data: l }));
+    const rows = ids.slice(i, i + CHUNK).map(id => cache.leads[id]).filter(Boolean).map(prospectRow);
     if (!rows.length) continue;
     await pg.query(
-      'INSERT INTO dialer_leads (id, phone_digits, status, data) ' +
-      'SELECT id, phone_digits, status, data FROM jsonb_to_recordset($1::jsonb) AS x(id text, phone_digits text, status text, data jsonb) ' +
-      'ON CONFLICT (id) DO UPDATE SET phone_digits = EXCLUDED.phone_digits, status = EXCLUDED.status, data = EXCLUDED.data, updated_at = now()',
+      `INSERT INTO prospects (id, phone_digits, email, business_key, business_name, city, state, stage, call_status, call_attempts,
+                              last_call_at, next_call_at, callback_at, call_blocked, crm_contact_id, crm_deal_id, email_state, data)
+       SELECT id, phone_digits, email, business_key, business_name, city, state, stage, call_status, call_attempts,
+              last_call_at, next_call_at, callback_at, call_blocked, crm_contact_id, crm_deal_id, email_state, data
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, phone_digits text, email text, business_key text, business_name text, city text, state text,
+              stage text, call_status text, call_attempts int, last_call_at timestamptz, next_call_at timestamptz, callback_at timestamptz,
+              call_blocked boolean, crm_contact_id bigint, crm_deal_id bigint, email_state text, data jsonb)
+       ON CONFLICT (id) DO UPDATE SET
+         phone_digits = EXCLUDED.phone_digits, email = EXCLUDED.email, business_key = EXCLUDED.business_key,
+         business_name = EXCLUDED.business_name, city = EXCLUDED.city, state = EXCLUDED.state, stage = EXCLUDED.stage,
+         call_status = EXCLUDED.call_status, call_attempts = EXCLUDED.call_attempts, last_call_at = EXCLUDED.last_call_at,
+         next_call_at = EXCLUDED.next_call_at, callback_at = EXCLUDED.callback_at,
+         call_blocked = prospects.call_blocked OR EXCLUDED.call_blocked,
+         crm_contact_id = COALESCE(EXCLUDED.crm_contact_id, prospects.crm_contact_id),
+         crm_deal_id = COALESCE(EXCLUDED.crm_deal_id, prospects.crm_deal_id),
+         email_state = CASE WHEN prospects.email_state = 'none' AND EXCLUDED.email_state = 'ready' THEN 'ready'
+                            WHEN prospects.email IS DISTINCT FROM EXCLUDED.email AND EXCLUDED.email_state = 'none' THEN 'none'
+                            ELSE prospects.email_state END,
+         data = EXCLUDED.data`,
       [JSON.stringify(rows)]);
   }
 }
@@ -284,8 +328,8 @@ async function flushOnce() {
     await upsertLeads(leadIds);
     if (callsTarget > dirty.persistedCalls) { await insertCalls(dirty.persistedCalls, callsTarget); dirty.persistedCalls = callsTarget; }
     if (kv) { await kvPut('settings', cache.settings); await kvPut('imports', cache.imports); await kvPut('meta', cache.meta); }
-    for (const id of aiPut) if (aiCache[id]) await pg.query('INSERT INTO dialer_ai_scripts (lead_id, data) VALUES ($1, $2::jsonb) ON CONFLICT (lead_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()', [id, JSON.stringify(aiCache[id])]);
-    for (const id of aiDel) await pg.query('DELETE FROM dialer_ai_scripts WHERE lead_id = $1', [id]);
+    for (const id of aiPut) if (aiCache[id]) await pg.query('UPDATE prospects SET research = $2::jsonb WHERE id = $1', [id, JSON.stringify(aiCache[id])]);
+    for (const id of aiDel) await pg.query('UPDATE prospects SET research = NULL WHERE id = $1', [id]);
     health.lastFlushAt = new Date().toISOString();
     health.lastError = null;
   } catch (e) {
@@ -379,6 +423,7 @@ function newId() {
   return crypto.randomBytes(6).toString('hex');
 }
 
+function pgHandle() { return backend === 'postgres' ? pg : null; }
 function getLead(id) { return load().leads[id] || null; }
 function allLeads() { return Object.values(load().leads); }
 function leadByPhone(digits) {
@@ -430,5 +475,6 @@ module.exports = {
   getLead, allLeads, leadByPhone, addLead, addCall,
   aiGet, aiPut, aiDel,
   settings, updateSettings,
+  pgHandle,
   _reset() { cache = null; aiCache = null; backend = 'file'; pg = null; dirty.leads = new Set(); dirty.ai = new Set(); dirty.aiDel = new Set(); dirty.kv = false; dirty.persistedCalls = 0; }
 };

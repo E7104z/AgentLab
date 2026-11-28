@@ -4,6 +4,7 @@
 const store = require('./store');
 const { normalizeRecord, firstNameOf, looksGarbled } = require('./parse');
 const clean = require('./clean');
+const prospects = require('./prospects');
 
 // ---- Outcomes ----------------------------------------------------------------
 // kind: retry  -> comes back after retryDays until maxAttempts, then 'exhausted'
@@ -93,7 +94,7 @@ function nextLead(filters = {}, excludeIds = []) {
   const s = store.settings();
   const now = Date.now();
   const exclude = new Set(excludeIds);
-  const leads = store.allLeads().filter(l => !exclude.has(l.id) && l.phoneDigits && matchesFilters(l, filters));
+  const leads = store.allLeads().filter(l => !exclude.has(l.id) && l.phoneDigits && !l.callBlocked && matchesFilters(l, filters));
   const snoozed = l => l.snoozeUntil && Date.parse(l.snoozeUntil) > now;
   const inWindow = windowChecker(s);
   const callable = l => !snoozed(l) && inWindow(l);
@@ -103,6 +104,12 @@ function nextLead(filters = {}, excludeIds = []) {
     .filter(l => !TERMINAL.has(l.status) && l.callbackAt && Date.parse(l.callbackAt) <= now + 5 * 60 * 1000 && !snoozed(l))
     .sort((a, b) => Date.parse(a.callbackAt) - Date.parse(b.callbackAt));
   if (due.length) return pack(due[0], 'callback_due', counts(leads, s));
+
+  // 1b. Someone who just answered our email (or clicked the booking link): call them next.
+  const hot = leads
+    .filter(l => !TERMINAL.has(l.status) && l.status !== 'meeting_booked' && l.priorityAt && (!l.priorityHandledAt || Date.parse(l.priorityAt) > Date.parse(l.priorityHandledAt)) && !snoozed(l))
+    .sort((a, b) => Date.parse(a.priorityAt) - Date.parse(b.priorityAt));
+  if (hot.length) return pack(hot[0], 'email_reply', counts(leads, s));
 
   // 2. Retries whose wait is over.
   const retries = leads
@@ -188,8 +195,10 @@ function logOutcome(leadId, { outcome, note, callbackAt, meetingAt, amount, dura
     callbackAt: lead.callbackAt || null, meetingAt: lead.meetingAt || null
   };
   store.addCall(call);
+  if (lead.priorityAt) lead.priorityHandledAt = now.toISOString();   // you acted on the email signal
   store.touch(lead);
   store.save();
+  prospects.onOutcome(lead, outcome, { callbackAt: lead.callbackAt });
   return { lead: view(lead), call };
 }
 
