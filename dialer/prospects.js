@@ -189,6 +189,8 @@ async function pullEmailSide() {
     l.priorityAt = r.call_priority_at ? new Date(r.call_priority_at).toISOString() : null;
     l.pendingTouch = r.pending_touch;
     if (r.call_blocked) l.callBlocked = true;
+    // An email-side opt-out (unsubscribe, complaint) leaves the phone callable but flags it.
+    if (r.email_state === 'suppressed' && !r.call_blocked) l.emailOptOut = true;
     n++;
   }
   return n;

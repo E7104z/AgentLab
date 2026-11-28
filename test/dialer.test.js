@@ -383,6 +383,16 @@ describe('prospects: dialer and email share one table', () => {
     expect(q.nextLead({}).reason).not.toBe('email_reply');                              // handled, no loop
   }, 20000);
 
+  it('an opt-out written from the email side shows up on the dialer lead', async () => {
+    const { db, prospects, store } = await setup([lead({ id: 'a', email: 'a@x.com' })]);
+    await prospects.pullEmailSide();                                                   // sets the watermark
+    await db.query("UPDATE prospects SET email_state = 'suppressed', updated_at = now() + interval '2 seconds' WHERE id = 'a'");
+    await new Promise(r => setTimeout(r, 2200));
+    await prospects.pullEmailSide();
+    expect(store.getLead('a')).toMatchObject({ emailOptOut: true, emailState: 'suppressed' });
+    expect(store.getLead('a').callBlocked).toBeFalsy();
+  }, 20000);
+
   it('email-side columns are never overwritten by a dialer save', async () => {
     const { db, store } = await setup([lead({ id: 'a', email: 'a@x.com' })]);
     await db.query("UPDATE prospects SET email_state = 'sent', email_sent_count = 2, email_approved_at = now() WHERE id = 'a'");
