@@ -8,7 +8,17 @@
   "intakeAlias": "",
   "sendMode": "draft",
   "timezone": "America/Chicago",
-  "businessHours": { "start": 8, "end": 18, "days": [1, 2, 3, 4, 5] },
+  "businessHours": {
+    "start": 8,
+    "end": 18,
+    "days": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
   "ownerName": "Jason",
   "website": "https://therealhelp.com",
   "phone": "314-660-2890",
@@ -22,7 +32,11 @@
   "aiDisclosure": false,
   "autoSendMinConfidence": 0.8,
   "offers": {
-    "quick_fix": { "label": "The Quick Fix", "setupCents": 50000, "monthlyCents": 3000 }
+    "quick_fix": {
+      "label": "The Quick Fix",
+      "setupCents": 50000,
+      "monthlyCents": 3000
+    }
   },
   "sequences": {
     "no_booking": {
@@ -31,12 +45,12 @@
         {
           "day": 2,
           "subject": "Re: {{lastSubject}}",
-          "body": "Hi {{firstName}},\n\nJust making sure my last note reached you. If {{chore}} is still eating your week, a free 15-minute call is the fastest way to see if a Quick Fix can handle it.\n\nGrab any open time here: {{bookingUrl}}\n\n{{signature}}\n\n{{optOut}}"
+          "body": "Hi {{firstName}},\n\nJust making sure my last note reached you. Whatever you're trying to get done in the business, a free 15-minute call is the fastest way to see where I can help.\n\nGrab any open time here: {{bookingUrl}}\n\n{{signature}}\n\n{{optOut}}"
         },
         {
           "day": 5,
           "subject": "Re: {{lastSubject}}",
-          "body": "Hi {{firstName}},\n\nMost owners I talk to have one chore they'd hand off tomorrow if they could. If yours is {{chore}}, I can usually tell you on one short call whether it's a $500 Quick Fix or something bigger.\n\n{{bookingUrl}}\n\n{{signature}}\n\n{{optOut}}"
+          "body": "Hi {{firstName}},\n\nMost owners I talk to have something in the business they'd hand off tomorrow if they could. I'm a consultant, so it doesn't have to be a tech problem. Tell me what's eating your week and I'll tell you where I'd start, or grab a free call here:\n\n{{bookingUrl}}\n\n{{signature}}\n\n{{optOut}}"
         },
         {
           "day": 12,
@@ -87,11 +101,11 @@
   "templates": {
     "lead_reply_fallback": {
       "subject": "Thanks for reaching out, {{firstName}}",
-      "body": "Hi {{firstName}},\n\nThanks for reaching out to The Real Help. {{choreLine}}\n\nWhat's the one part of it that takes the most time each week?\n\nIf it's easier to talk it through, grab a free 15-minute intro call here: {{bookingUrl}}\n\n{{signature}}"
+      "body": "Hi {{firstName}},\n\nThanks for reaching out to The Real Help. {{choreLine}}\n\nWhat does your business do, and what's the hardest part of it right now?\n\nIf it's easier to talk it through, grab a free 15-minute intro call here: {{bookingUrl}}\n\n{{signature}}"
     },
     "booking_prep": {
       "subject": "Re: {{lastSubject}}",
-      "body": "Hi {{firstName}},\n\nYou're booked for {{callTime}}. Looking forward to it.\n\nTo make the call useful, reply with two quick things if you can:\n1. What's the chore you'd most like to hand off?\n2. What do you use for it today (paper, spreadsheet, an app)?\n\n{{signature}}"
+      "body": "Hi {{firstName}},\n\nYou're booked for {{callTime}}. Looking forward to it.\n\nTo make the call useful, reply with two quick things if you can:\n1. What would you most like help with, big or small?\n2. How do you handle it today (paper, spreadsheet, an app, or not at all)?\n\n{{signature}}"
     },
     "booking_cancelled": {
       "subject": "Re: {{lastSubject}}",

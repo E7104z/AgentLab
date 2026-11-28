@@ -55,26 +55,26 @@ const DEFAULT_SETTINGS = {
   emailTemplate:
     'Hi {{firstName}},\n\n' +
     'Thanks for taking a minute on the phone today. Here is the short version:\n\n' +
-    'I build three things for small businesses. Each is $500 to build and $30 a month to host, run and support (up to 2 small changes a month included):\n\n' +
+    'I am a consultant for small businesses. I start with tech, and I can help with whatever your business needs. A lot of owners begin with one of three quick builds. Each is $500 to build and $30 a month to host, run and support (up to 2 small changes a month included):\n\n' +
     '1. Website That Gets Calls - a mobile site with click-to-call and a contact form that emails you.\n' +
     '2. AI Lead Responder - every web form or email gets a reply in under 2 minutes, in your voice.\n' +
     '3. Paperwork Autopilot - one form that fills your estimate, intake or job sheet and sends the PDF.\n\n' +
-    'Each one goes live within 5 business days of me receiving your materials. Anything bigger is a custom build with a fixed quote first.\n\n' +
+    'Each one goes live within 5 business days of me receiving your materials. Anything else you need, big or small, we talk through on a short call and I give you a fixed quote first.\n\n' +
     'You can see examples at {{website}}.{{bookingLine}}\n\n' +
     'Jason Griffin\n{{senderCompany}}',
   // ~20 seconds spoken. {{vmReason}} is picked from the lead's best-fit offer. The number is said twice.
   voicemailScript:
     '{{greeting}}, this is {{senderName}} with {{senderCompany}}. {{vmReason}} ' +
-    'I would like to show {{businessName}} how it works - it takes about fifteen minutes. ' +
+    'I would like to show {{businessName}} how I can help, in fifteen minutes. ' +
     'Call me back at {{callbackNumber}}. Again, that is {{callbackNumber}}. Thanks.',
-  scriptVersion: 3,
+  scriptVersion: 4,
   settingsVersion: SETTINGS_VERSION,
   script: [
     'OPENER',
     'Hi, is this {{ownerAsk}}? This is Jason Griffin with The Real Help. I know I\'m catching you in the middle of your day - can I have 30 seconds to tell you why I called, and you can tell me if it\'s worth another minute?',
     '',
     'REASON FOR THE CALL - give three choices, not a yes/no',
-    'I build three things for small businesses, $500 each, done in under a week: a website that makes your phone ring, an assistant that answers every lead in two minutes, and paperwork that fills itself out. Which of those would help {{businessName}} most right now?',
+    'I\'m a consultant for small businesses. I start with tech, but I help with whatever the business needs. Most owners begin with one of three quick builds, $500 each, done in under a week: a website that makes your phone ring, an assistant that answers every lead in two minutes, or paperwork that fills itself out. Which of those would help {{businessName}} most right now - or is there something else on your plate?',
     '',
     'IF THEY HESITATE - ask, then offer the match',
     'Do you have a website? (No / embarrassing -> offer 1)',
@@ -93,14 +93,14 @@ const DEFAULT_SETTINGS = {
     'DEMO CLOSE (offer 2): Email my demo address right now while we are on the phone and watch the reply land. Use the separate demo inbox, never your main one.',
     '',
     'NOTHING FITS?',
-    'Tell me the biggest headache in your week and I\'ll tell you honestly if I can fix it for $500. Bigger jobs - customer portals, logins, several systems talking to each other - are a custom build with a fixed quote after a 20-minute scoping call.',
+    'Tell me the biggest headache in your week, or just \"I need help with the business,\" and I\'ll tell you where I would start. I can do it all - tech first, and the rest we scope together. Small fixes can be the $500 build. Bigger jobs - customer portals, logins, several systems talking to each other, anything beyond tech - get a fixed quote after a 20-minute scoping call.',
     '',
     'OBJECTIONS',
     'Send me something -> Happy to. What\'s the best email? And which of the three should I lead with?',
     'Not interested -> Understood. Is that because you have this covered already, or the timing isn\'t right?',
     'No budget -> That\'s why it\'s $500, not $5,000. If it saves you two hours a week or lands one extra job, it pays for itself fast.',
     'Already have a website / software -> Good. What does it still not do - the part you handle by hand or miss when you\'re out on a job? That\'s usually where I come in.',
-    'Can you also do ___ (bigger) -> Possibly. That would be a custom build - a fixed quote after a short call, so there are no surprises.'
+    'Can you also do ___ -> Yes, or I will tell you straight where to start. I am a consultant, so tell me what you need and I scope it on a short call with a fixed quote, no surprises.'
   ].join('\n')
 };
 
@@ -127,6 +127,30 @@ function readFileData() {
   try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return null; }
 }
 
+// v4 wording changes (consultant positioning): [old default line, new default line].
+const V4_LINE_SWAPS = [
+  [
+    "I build three things for small businesses, $500 each, done in under a week: a website that makes your phone ring, an assistant that answers every lead in two minutes, and paperwork that fills itself out. Which of those would help {{businessName}} most right now?",
+    "I'm a consultant for small businesses. I start with tech, but I help with whatever the business needs. Most owners begin with one of three quick builds, $500 each, done in under a week: a website that makes your phone ring, an assistant that answers every lead in two minutes, or paperwork that fills itself out. Which of those would help {{businessName}} most right now - or is there something else on your plate?"
+  ],
+  [
+    "Tell me the biggest headache in your week and I'll tell you honestly if I can fix it for $500. Bigger jobs - customer portals, logins, several systems talking to each other - are a custom build with a fixed quote after a 20-minute scoping call.",
+    "Tell me the biggest headache in your week, or just \"I need help with the business,\" and I'll tell you where I would start. I can do it all - tech first, and the rest we scope together. Small fixes can be the $500 build. Bigger jobs - customer portals, logins, several systems talking to each other, anything beyond tech - get a fixed quote after a 20-minute scoping call."
+  ],
+  [
+    "Can you also do ___ (bigger) -> Possibly. That would be a custom build - a fixed quote after a short call, so there are no surprises.",
+    "Can you also do ___ -> Yes, or I will tell you straight where to start. I am a consultant, so tell me what you need and I scope it on a short call with a fixed quote, no surprises."
+  ],
+  [
+    "I build three things for small businesses. Each is $500 to build and $30 a month to host, run and support (up to 2 small changes a month included):",
+    "I am a consultant for small businesses. I start with tech, and I can help with whatever your business needs. A lot of owners begin with one of three quick builds. Each is $500 to build and $30 a month to host, run and support (up to 2 small changes a month included):"
+  ],
+  [
+    "Each one goes live within 5 business days of me receiving your materials. Anything bigger is a custom build with a fixed quote first.",
+    "Each one goes live within 5 business days of me receiving your materials. Anything else you need, big or small, we talk through on a short call and I give you a fixed quote first."
+  ]
+];
+
 function normalize(data) {
   cache = data || EMPTY();
   cache.leads = cache.leads || {};
@@ -151,6 +175,15 @@ function normalize(data) {
       .replace('is this {{firstName}}?', 'is this {{ownerAsk}}?')
       .replace('Does tomorrow or Thursday work better?', 'Does {{dayOne}} or {{dayTwo}} work better?');
     s.scriptVersion = 3;
+  }
+  // v4: consultant positioning. Replace only lines that are still the old default, so Jason's own edits survive.
+  if (savedScriptVersion < 4) {
+    for (const [from, to] of V4_LINE_SWAPS) {
+      if (String(s.script).includes(from)) s.script = s.script.replace(from, to);
+      if (String(s.emailTemplate).includes(from)) s.emailTemplate = s.emailTemplate.replace(from, to);
+    }
+    s.scriptVersion = 4;
+    dirty.kv = true;
   }
   // v3: Google Voice replaces TextNow; follow-up mail comes from the outreach mailbox.
   if (savedSettingsVersion < 3) {

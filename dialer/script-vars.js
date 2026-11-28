@@ -38,10 +38,10 @@ function offeredDays(now = new Date(), tz = USER_TZ()) {
 }
 
 const VM_REASON = {
-  1: 'I help local businesses get their phones ringing from their website.',
-  2: 'I help local businesses answer every web inquiry within two minutes.',
-  3: 'I help local businesses turn estimate and intake paperwork into one simple form.',
-  0: 'I build simple tools that take the busywork off small business owners.'
+  1: 'I am a small business consultant, starting with tech, like websites that get your phone ringing.',
+  2: 'I am a small business consultant, starting with tech, like answering every web inquiry in two minutes.',
+  3: 'I am a small business consultant, starting with tech, like turning estimate paperwork into one simple form.',
+  0: 'I am a consultant who helps small businesses with whatever they need, starting with tech.'
 };
 
 function voicemailNumber(s) { return String(s.callbackNumber || '').trim(); }

@@ -154,7 +154,7 @@ function createLeads({ db, store, outbox, sequences, getClient, llm, config }) {
       } else {
         const vars = {
           firstName: firstName(lead.name, email),
-          choreLine: chore ? `You mentioned: "${chore.slice(0, 140)}". That's exactly the kind of thing we take off owners' plates.` : '',
+          choreLine: chore ? `You mentioned: "${chore.slice(0, 140)}". Thanks for telling me. I'm a consultant who helps with the whole business, so this is something I can look at with you.` : '',
           bookingUrl: client.bookingUrl,
           signature: '',
         };

@@ -419,3 +419,27 @@ describe('prospects: dialer and email share one table', () => {
     expect((await prospects.limits()).email.recommendedCap).toBeLessThan(10);
   }, 20000);
 });
+
+describe('consultant positioning in the dialer', () => {
+  it('scripts, email and AI prompt present Jason as a consultant who can help with anything', () => {
+    const { DEFAULT_SETTINGS: d } = require('../dialer/store');
+    const ai = require('fs').readFileSync(require('path').join(__dirname, '..', 'dialer', 'ai-script.js'), 'utf8');
+    expect(d.script).toMatch(/I'm a consultant for small businesses/);
+    expect(d.script).toMatch(/I can do it all/);
+    expect(d.script).not.toMatch(/tell you honestly if I can fix it for \$500/);
+    expect(d.emailTemplate).toMatch(/consultant/);
+    expect(ai).toMatch(/NEVER tell the owner Jason cannot do something/);
+    expect(ai).not.toMatch(/Not offered: texting/);
+  });
+  it('v4 swaps old default lines but keeps Jason\'s own edits', async () => {
+    const { store, file } = await freshStore();
+    const old = 'Tell me the biggest headache in your week and I\'ll tell you honestly if I can fix it for $500. Bigger jobs - customer portals, logins, several systems talking to each other - are a custom build with a fixed quote after a 20-minute scoping call.';
+    fs.writeFileSync(file, JSON.stringify({ leads: {}, calls: [], imports: [], settings: { scriptVersion: 3, settingsVersion: 3, script: 'MY OWN OPENER\n' + old + '\nMY OWN CLOSE', emailTemplate: 'custom email' } }));
+    const s = store.settings();
+    expect(s.script).toMatch(/^MY OWN OPENER/);
+    expect(s.script).toMatch(/MY OWN CLOSE$/);
+    expect(s.script).toMatch(/I can do it all/);
+    expect(s.emailTemplate).toBe('custom email');
+    expect(s.scriptVersion).toBe(4);
+  });
+});
